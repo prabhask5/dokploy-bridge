@@ -1,0 +1,22 @@
+# Runs dokploy-bridge next to Dokploy, on the Dokploy server.
+# Copy .env.example to .env and set DOKPLOY_API_KEY first; everything else is optional.
+services:
+  dokploy-bridge:
+    build: .
+    image: dokploy-bridge:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # state.json and defaults.json. Keep this between updates, or the bridge starts over.
+      - bridge-data:/data
+      # Dokploy's build logs, so failed checks can show the end of the log. Optional.
+      - /etc/dokploy/logs:/etc/dokploy/logs:ro
+    # Dokploy's network, so http://dokploy:3000 resolves.
+    networks: [dokploy-network]
+
+volumes:
+  bridge-data:
+
+networks:
+  dokploy-network:
+    external: true

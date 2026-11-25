@@ -1,2 +1,7 @@
+node_modules
+coverage
+.DS_Store
 .env
-data/
+.env.local
+/data
+.claude/settings.local.json

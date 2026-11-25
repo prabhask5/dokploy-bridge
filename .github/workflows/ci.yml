@@ -1,0 +1,91 @@
+name: CI
+
+# Every job here must pass before a pull request can merge. Branch protection requires only
+# the `required` job at the bottom, which fails unless all the others succeeded, so jobs can
+# be added or removed without changing repository settings.
+#
+# Tests are found by glob under tests/, so adding, changing or deleting a test needs no edit here.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Enable pnpm (Corepack)
+        run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Tests live in tests/
+        run: |
+          stray=$(git ls-files | grep -E '\.(test|spec)\.[^/]+$' | grep -v '^tests/' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::Test files outside tests/ are not run by CI. Move them into tests/:"
+            echo "$stray"
+            exit 1
+          fi
+      - run: pnpm format:check
+      - run: pnpm lint
+      - name: Links in the docs
+        run: node scripts/check-links.mjs
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Enable pnpm (Corepack)
+        run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the Docker image
+        run: docker build -t dokploy-bridge:ci .
+      - name: The image starts and fails cleanly without configuration
+        run: |
+          out=$(docker run --rm dokploy-bridge:ci 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "DOKPLOY_API_KEY is required"
+
+  required:
+    name: required
+    if: always()
+    needs: [static, unit, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")' > /dev/null

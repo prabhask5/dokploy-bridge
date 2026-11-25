@@ -1,0 +1,12 @@
+**/node_modules
+**/coverage
+**/.DS_Store
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+tests
+scripts
+.claude

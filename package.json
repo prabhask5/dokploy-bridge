@@ -1,0 +1,40 @@
+{
+  "name": "dokploy-bridge",
+  "version": "0.1.0",
+  "description": "Vercel-style defaults, GitHub Deployments + checks, and preview cleanup for self-hosted Dokploy",
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "dokploy-bridge": "src/index.mjs"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "check": "for f in src/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "dokploy",
+    "github",
+    "deployments",
+    "checks",
+    "preview",
+    "vercel",
+    "self-hosted"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prabhask5/dokploy-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/prabhask5/dokploy-bridge/issues"
+  },
+  "homepage": "https://github.com/prabhask5/dokploy-bridge#readme",
+  "license": "MIT",
+  "private": true
+}

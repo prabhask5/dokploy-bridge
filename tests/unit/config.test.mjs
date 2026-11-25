@@ -1,0 +1,70 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { loadConfig } from "../../src/config.mjs";
+
+test("defaults", () => {
+  const { cfg, errors } = loadConfig({ DOKPLOY_API_KEY: "k" });
+  assert.deepEqual(errors, []);
+  assert.equal(cfg.dokployUrl, "http://dokploy:3000");
+  assert.equal(cfg.interval, 10000);
+  assert.equal(cfg.stateFile, "/data/state.json");
+  assert.equal(cfg.defaultsFile, "/data/defaults.json");
+  assert.equal(cfg.checkNameProduction, "Dokploy");
+  assert.equal(cfg.environmentPreview, "Preview (PR #{pr})");
+  assert.equal(cfg.previewCleanup, true);
+  assert.equal(cfg.dryRun, false);
+});
+
+test("overrides, booleans, lists, legacy DOKPLOY_INTERNAL_URL", () => {
+  const { cfg } = loadConfig({
+    DOKPLOY_API_KEY: "k",
+    DOKPLOY_INTERNAL_URL: "http://dok:3000/",
+    DOKPLOY_PUBLIC_URL: "https://deploy.example.com/",
+    POLL_SECONDS: "30",
+    DATA_DIR: "/var/lib/bridge/",
+    PREVIEW_CLEANUP: "false",
+    DRY_RUN: "yes",
+    IGNORE_APPS: "a, b ,",
+    CHECK_NAME_PRODUCTION: "Production",
+    CHECK_NAME_PREVIEW: "Preview",
+  });
+  assert.equal(cfg.dokployUrl, "http://dok:3000");
+  assert.equal(cfg.dokployPublicUrl, "https://deploy.example.com");
+  assert.equal(cfg.interval, 30000);
+  assert.equal(cfg.stateFile, "/var/lib/bridge/state.json");
+  assert.equal(cfg.previewCleanup, false);
+  assert.equal(cfg.dryRun, true);
+  assert.deepEqual(cfg.ignoreApps, ["a", "b"]);
+  assert.equal(
+    loadConfig({
+      DOKPLOY_API_KEY: "k",
+      DOKPLOY_URL: "http://new:1",
+      DOKPLOY_INTERNAL_URL: "http://old:2",
+    }).cfg.dokployUrl,
+    "http://new:1",
+  );
+});
+
+test("poll interval has a floor of 5s", () => {
+  assert.equal(loadConfig({ DOKPLOY_API_KEY: "k", POLL_SECONDS: "1" }).cfg.interval, 5000);
+});
+
+test("validation errors", () => {
+  assert.match(loadConfig({}).errors.join(), /DOKPLOY_API_KEY is required/);
+  assert.match(
+    loadConfig({ DOKPLOY_API_KEY: "k", ENVIRONMENT_PREVIEW: "Preview" }).errors.join(),
+    /must contain \{pr\}/,
+  );
+  assert.match(
+    loadConfig({ DOKPLOY_API_KEY: "k", DOKPLOY_URL: "dokploy:3000" }).errors.join(),
+    /DOKPLOY_URL must be an http/,
+  );
+  assert.match(
+    loadConfig({
+      DOKPLOY_API_KEY: "k",
+      CHECK_NAME_PRODUCTION: "X",
+      CHECK_NAME_PREVIEW: "X",
+    }).errors.join(),
+    /must differ/,
+  );
+});

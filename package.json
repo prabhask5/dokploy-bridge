@@ -1,40 +1,23 @@
 {
   "name": "dokploy-bridge",
+  "private": true,
   "version": "0.1.0",
-  "description": "Vercel-style defaults, GitHub Deployments + checks, and preview cleanup for self-hosted Dokploy",
   "type": "module",
-  "main": "src/index.mjs",
-  "bin": {
-    "dokploy-bridge": "src/index.mjs"
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22.18"
   },
   "scripts": {
     "start": "node src/index.mjs",
-    "test": "node --test \"test/*.test.mjs\"",
-    "check": "for f in src/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test \"tests/**/*.test.mjs\""
   },
-  "engines": {
-    "node": ">=22"
-  },
-  "files": [
-    "src"
-  ],
-  "keywords": [
-    "dokploy",
-    "github",
-    "deployments",
-    "checks",
-    "preview",
-    "vercel",
-    "self-hosted"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/prabhask5/dokploy-bridge.git"
-  },
-  "bugs": {
-    "url": "https://github.com/prabhask5/dokploy-bridge/issues"
-  },
-  "homepage": "https://github.com/prabhask5/dokploy-bridge#readme",
-  "license": "MIT",
-  "private": true
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1"
+  }
 }

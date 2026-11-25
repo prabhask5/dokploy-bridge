@@ -1,162 +1,123 @@
 # dokploy-bridge
 
-**Vercel-style GitHub integration for self-hosted [Dokploy](https://dokploy.com).** Every push and pull request gets a deployment in GitHub's Deployments view, a ✅/❌ check with a build report, and preview environments that clean themselves up when the PR closes. New apps start from your own defaults, so there's nothing to configure per repo.
+Vercel-style GitHub integration for a self-hosted [Dokploy](https://dokploy.com). Every push and pull request gets a deployment in GitHub's Deployments view and a ✅ or ❌ check with a build report, and previews clean themselves up when the PR closes. A small companion container that you run next to Dokploy, with nothing to set up per repository.
 
-[![CI](https://github.com/prabhask5/dokploy-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/prabhask5/dokploy-bridge/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+## Features
 
-> Not affiliated with Dokploy. A small companion service that talks to Dokploy's API and to GitHub as Dokploy's own GitHub App.
+- **Checks on every commit.** A check named `Dokploy` (production) or `Dokploy Preview` (pull requests) spins while Dokploy builds. It then ends ✅ with the live URL and build time, or ❌ with the error and the last lines of the build log, with the app's secrets masked.
+- **GitHub Deployments.** Each deploy shows up as `Production` or `Preview (PR #n)` in the repository's Deployments sidebar, with a **View deployment** button on the pull request.
+- **Previews that clean up.** When a pull request is closed or merged and Dokploy removes its preview, the preview's GitHub deployments and environment are deleted. The Deployments view only lists what's live.
+- **Defaults for new apps.** Apps you create start with the build type, rollback and preview settings of a template app you choose. Their preview port follows their first domain, and previews use the production environment variables until you set your own.
+- **Leaves what exists alone.** On its first run the bridge only records the apps and deployments already there; it doesn't change or report them.
 
-## What you get
+## Self-hosting
 
-**On every commit and pull request:**
-- A **check run** named `Dokploy` (production) or `Dokploy Preview` (PRs). It spins while Dokploy builds, then ends ✅ with the live URL and build time, or ❌ with the error and the last lines of the build log. Secrets from the app's environment are masked.
-- A **GitHub Deployment** in `Production` or `Preview (PR #n)`, so the repo's **Deployments** sidebar and the PR timeline show a **View deployment** button.
+You need a Dokploy server whose apps deploy from the **GitHub** provider (Git URLs, GitLab, Bitbucket and Gitea aren't supported), and Docker on that server. The bridge talks to Dokploy's API over Dokploy's Docker network, and to GitHub as the GitHub App Dokploy already uses. It needs no webhooks, no ports and no app of its own.
 
-**When a PR is closed or merged:** once Dokploy removes the preview, its GitHub deployments and `Preview (PR #n)` environment are deleted, so the Deployments view only lists what's live.
+### Quick start
 
-**For newly created Dokploy apps:**
-- **Defaults** (build type, rollback registry, preview settings) are copied from a template app you choose.
-- The **preview port** follows the app's first domain.
-- **Preview environment variables** mirror production until you customise them.
+On the Dokploy server:
 
-Existing apps and past deployments are left alone: on its first run the bridge only records what's already there.
-
-## How it works
-
-```mermaid
-flowchart LR
-  GH[GitHub] -- push / PR webhook --> DK[Dokploy]
-  DK -- builds and deploys --> APP[(Your apps)]
-  BR[dokploy-bridge] -- polls the API every 10s --> DK
-  BR -- deployments, checks, cleanup --> GH
-```
-
-- **No webhooks or extra GitHub App to set up.** The bridge polls Dokploy's API, and acts on GitHub with the credentials of the GitHub App Dokploy already uses.
-- **No dependencies:** a single small Node.js process.
-- **Its state** (what it has already reported) lives in a single JSON file.
-
-## Requirements
-
-- **Dokploy** with apps that deploy from the **GitHub** provider. Plain Git URLs, GitLab, Bitbucket and Gitea aren't supported.
-- **A Dokploy API key** of an **owner or admin**, created under *Settings → Profile → API/CLI*. Only owners and admins can read the GitHub App's private key, which the bridge needs to act as that app.
-- **The bridge must be able to reach Dokploy's API.** Running it on the `dokploy-network` Docker network next to Dokploy is the simplest.
-- **Permissions on Dokploy's GitHub App**, under *GitHub → Settings → Developer settings → GitHub Apps → (your Dokploy app) → Permissions*:
-
-| Repository permission | Access | Used for |
-|---|---|---|
-| Checks | Read and write | Check runs. Optional: without it the bridge falls back to commit statuses. |
-| Deployments | Read and write | Deployments view and preview cleanup |
-| Commit statuses | Read and write | Fallback when Checks is missing |
-| Contents, Pull requests | Read | Finding the commit being built (Dokploy's app already has these) |
-| Administration | Read and write | **Optional.** Deleting empty `Preview (PR #n)` environments. Without it, the deployments are still deleted. |
-
-After changing an app's permissions, GitHub asks you to **accept the new permissions** on each installation (*Settings → Applications → Installed GitHub Apps → Configure*).
-
-## Install
-
-### Option A: Docker Compose on the Dokploy server
 ```bash
-mkdir -p /opt/dokploy-bridge && cd /opt/dokploy-bridge
-curl -fsSLO https://raw.githubusercontent.com/prabhask5/dokploy-bridge/main/docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/prabhask5/dokploy-bridge/main/.env.example -o .env
-nano .env                 # set DOKPLOY_API_KEY, DOKPLOY_PUBLIC_URL, TEMPLATE_APP
-docker compose up -d && docker compose logs -f
+git clone https://github.com/prabhask5/dokploy-bridge.git && cd dokploy-bridge
+cp .env.example .env
+nano .env                  # set DOKPLOY_API_KEY, and ideally DOKPLOY_PUBLIC_URL and TEMPLATE_APP
+docker compose up -d --build
+docker compose logs -f     # "dokploy-bridge 0.1.0 starting", then "baseline: N existing app(s)"
 ```
-You should see `dokploy-bridge 0.x.y starting: ...` and then `baseline: N existing app(s) left as configured`.
 
-### Option B: as an app inside Dokploy
-1. **Create an application** with source **Docker**, image `ghcr.io/prabhask5/dokploy-bridge:latest`.
-2. **Environment:** paste the variables from [`.env.example`](.env.example).
+Then push a commit to any app's repository, and its check appears on GitHub within a few seconds.
+
+`DOKPLOY_API_KEY` must belong to a Dokploy **owner or admin** (_Settings → Profile → API/CLI_). Only they can read the GitHub App's private key, which the bridge needs to act as that app.
+
+### Running it inside Dokploy
+
+The bridge can also be deployed as a Dokploy app itself:
+
+1. **Create an application** from this repository, with the **Dockerfile** build type.
+2. **Environment:** the variables from [`.env.example`](.env.example).
 3. **Advanced → Volumes:**
-   - bind mount a host folder (e.g. `/opt/dokploy-bridge/data`) to `/data`
-   - optionally bind `/etc/dokploy/logs` to `/etc/dokploy/logs`, for build logs in the check report
-4. **Turn Preview Deployments off** for this app. A preview would start a second bridge, and you'd get duplicate checks and deployments.
-5. **Deploy.** Dokploy apps join `dokploy-network`, so the default `DOKPLOY_URL=http://dokploy:3000` works.
+   - a bind mount from a host folder (e.g. `/opt/dokploy-bridge/data`) to `/data`
+   - optionally `/etc/dokploy/logs` to `/etc/dokploy/logs`, for build logs in checks
+4. **Turn Preview Deployments off** for this app. A preview would start a second bridge, and every check and deployment would be reported twice.
+5. **Deploy.** Dokploy apps join `dokploy-network`, so the default `DOKPLOY_URL` works.
 
-**Run only one instance at a time.** Two bridges would report everything twice.
+**Only ever run one bridge** per Dokploy server.
 
-## Configuration
+### GitHub permissions
 
-All settings are environment variables. Only `DOKPLOY_API_KEY` is required.
+The bridge uses the GitHub App that Dokploy created when you connected GitHub. In _GitHub → Settings → Developer settings → GitHub Apps → (your Dokploy app) → Permissions_, give it:
 
-| Variable | Default | Description |
-|---|---|---|
-| `DOKPLOY_API_KEY` | (required) | Owner/admin API key. |
-| `DOKPLOY_URL` | `http://dokploy:3000` | Dokploy API base URL, as reachable from the bridge. `DOKPLOY_INTERNAL_URL` is accepted too. |
-| `DOKPLOY_PUBLIC_URL` | (none) | Your dashboard's public URL, used for "Open in Dokploy" links on GitHub. |
-| `TEMPLATE_APP` | (none) | Name of the app whose settings become the defaults for new apps. Captured once into `defaults.json`. |
-| `POLL_SECONDS` | `10` | How often to poll Dokploy (minimum 5). |
-| `IGNORE_APPS` | (none) | Comma-separated app names (or `appName`s) to leave alone. |
-| `DATA_DIR` | `/data` | Where `state.json` and `defaults.json` live. Mount it. |
-| `DEFAULTS` | `true` | Apply defaults to new apps. |
-| `PREVIEW_PORT_SYNC` | `true` | Set a new app's preview port to its first domain's port. |
-| `PREVIEW_ENV_INHERIT` | `true` | Copy production env vars to previews until you customise them. |
-| `GITHUB_DEPLOYMENTS` | `true` | Create GitHub Deployments. |
-| `GITHUB_CHECKS` | `true` | Create check runs. When `false`, uses commit statuses instead. |
-| `PREVIEW_CLEANUP` | `true` | Delete a closed PR's GitHub deployments and environment. |
-| `DELETE_PREVIEW_ENVIRONMENTS` | `true` | Also delete the empty environment (needs *Administration: write*). |
-| `CHECK_NAME_PRODUCTION` | `Dokploy` | Check name for production deploys. |
-| `CHECK_NAME_PREVIEW` | `Dokploy Preview` | Check name for preview deploys. |
-| `ENVIRONMENT_PRODUCTION` | `Production` | GitHub environment for production. |
-| `ENVIRONMENT_PREVIEW` | `Preview (PR #{pr})` | GitHub environment for previews. Must contain `{pr}`. Quote it in `.env` files. |
-| `LOG_TAIL_LINES_SUCCESS` | `25` | Build-log lines in a successful check (`0` = none). |
-| `LOG_TAIL_LINES_FAILURE` | `80` | Build-log lines in a failed check (`0` = none). |
-| `DRY_RUN` | `false` | Log every write to Dokploy and GitHub instead of doing it. |
-| `LOG_LEVEL` | `info` | `debug` for more detail. |
-| `GITHUB_API_URL` | auto | Override the GitHub API URL. Auto-detected, including GitHub Enterprise Server. |
+| Repository permission   | Access         | Used for                                                                     |
+| ----------------------- | -------------- | ---------------------------------------------------------------------------- |
+| Checks                  | Read and write | Check runs. Without it the bridge falls back to plain commit statuses.       |
+| Deployments             | Read and write | The Deployments view, and deleting closed PRs' deployments                   |
+| Commit statuses         | Read and write | The fallback when Checks is missing                                          |
+| Contents, Pull requests | Read           | Finding the commit being built (Dokploy's app usually already has these)     |
+| Administration          | Read and write | Optional. Deleting the empty `Preview (PR #n)` environment after a PR closes |
 
-### Per-app opt-out
-To make the bridge ignore an app completely (no defaults, checks, deployments or cleanup), either:
-- put `dokploy-bridge: off` anywhere in the app's **description** in Dokploy, or
-- add its name to `IGNORE_APPS`.
+After changing permissions, GitHub asks you to **accept them** on each installation (_Settings → Applications → Installed GitHub Apps → Configure_).
 
-### Defaults for new apps
-On first start with `TEMPLATE_APP` set, the bridge saves these settings from that app to `/data/defaults.json`:
-- **Build:** build type, Dockerfile and context, build stage, publish directory, static SPA.
-- **Auto-deploy and rollback:** auto-deploy, rollback on/off, rollback registry.
-- **Preview settings:** wildcard domain, HTTPS, certificate, path, port, limit, labels, collaborator requirement.
+### Environment variables
 
-After that, only the file is read: edit it to change what new apps get, or delete it to capture from `TEMPLATE_APP` again. Environment variables and domains are **never** copied. Defaults apply only to apps created after the bridge's first run.
+Only `DOKPLOY_API_KEY` is required. All of them are listed with their defaults in [`.env.example`](.env.example).
 
-## Troubleshooting
+| Variable                                               | Purpose                                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `DOKPLOY_API_KEY`                                      | An owner or admin API key. Required.                                                                                     |
+| `DOKPLOY_PUBLIC_URL`                                   | Your dashboard's public address, for "Open in Dokploy" links on GitHub.                                                  |
+| `TEMPLATE_APP`                                         | The app whose settings become the defaults for new apps. Saved once to `/data/defaults.json`; edit that file afterwards. |
+| `DOKPLOY_URL`                                          | Where the bridge reaches Dokploy's API. Default `http://dokploy:3000`.                                                   |
+| `POLL_SECONDS`                                         | How often to check Dokploy. Default `10`.                                                                                |
+| `IGNORE_APPS`                                          | Comma-separated apps to leave alone. An app can also opt out with `dokploy-bridge: off` in its description.              |
+| `DEFAULTS`, `PREVIEW_PORT_SYNC`, `PREVIEW_ENV_INHERIT` | Turn the new-app defaults off one by one.                                                                                |
+| `GITHUB_DEPLOYMENTS`, `GITHUB_CHECKS`                  | Turn deployments or checks off. Without checks, the bridge uses commit statuses.                                         |
+| `PREVIEW_CLEANUP`, `DELETE_PREVIEW_ENVIRONMENTS`       | Turn cleanup off, or keep the empty environment (if you don't grant Administration).                                     |
+| `CHECK_NAME_PRODUCTION`, `CHECK_NAME_PREVIEW`          | The check names. Default `Dokploy` and `Dokploy Preview`.                                                                |
+| `ENVIRONMENT_PRODUCTION`, `ENVIRONMENT_PREVIEW`        | The GitHub environment names. The preview one must contain `{pr}`.                                                       |
+| `LOG_TAIL_LINES_SUCCESS`, `LOG_TAIL_LINES_FAILURE`     | Lines of the build log in a check. `0` for none.                                                                         |
+| `DRY_RUN`                                              | `true` logs every change instead of making it.                                                                           |
+| `LOG_LEVEL`                                            | `debug` for more detail.                                                                                                 |
 
-| You see | Fix |
-|---|---|
-| `config: DOKPLOY_API_KEY is required` | Set it. |
-| `... cannot read the GitHub App private key` | The key isn't an owner's or admin's. Create one as the owner. |
-| `-> 403 ... Resource not accessible by integration` | Dokploy's GitHub App is missing a permission (see [Requirements](#requirements)), or the new permissions haven't been accepted on the installation. |
-| No checks on a repo | The app must use the **GitHub** provider, not a Git URL, and must not be ignored. Run with `LOG_LEVEL=debug`. |
-| `not reporting deployment ... no commit` | A manual deploy or rollback: there's no commit to attach a check to. Expected. |
-| `build log not readable` in a check | Mount Dokploy's logs folder (`/etc/dokploy/logs`) read-only, at the same path. |
-| `environment kept (no Administration permission)` | Grant *Administration: write*, or set `DELETE_PREVIEW_ENVIRONMENTS=false` to silence it. |
-| Nothing happens on first start | That's by design: the first run records existing deployments without reporting them. Push a commit. |
+### Updating, starting over, security
 
-Before trying the bridge on a busy server, `DRY_RUN=true` prints what it would do without changing anything.
+- **Updating:** `git pull && docker compose up -d --build`. Keep the `/data` volume, so nothing is reported twice.
+- **Trying it first:** `DRY_RUN=true` shows what the bridge would do without changing anything.
+- **Starting over:** stop the bridge and delete `state.json` from `/data`. The next start treats everything as already there.
+- **Security:** the API key can do anything in Dokploy, and the bridge reads Dokploy's GitHub App key, so don't expose the container. It listens on no port. Check output is public on public repositories: env values are masked, but if your builds print other secrets, set `LOG_TAIL_LINES_*=0`.
 
-**To start over**, stop the bridge and delete `state.json`. The next start treats everything as existing again.
+### Troubleshooting
 
-## Security notes
-
-- The owner/admin API key can do anything in Dokploy, and the bridge reads Dokploy's GitHub App private key. **Don't expose the bridge's container to the internet.** It doesn't listen on any port.
-- **Check output is public on public repositories.** The bridge masks values from the app's environment, preview environment and build args, but a build log can contain other secrets. Set `LOG_TAIL_LINES_*=0` to leave logs out of checks entirely.
-- Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
-
-## Limitations
-
-- **GitHub only**, and **Dokploy applications only.** Docker Compose services aren't supported.
-- It polls Dokploy's API, which isn't a stable public API, so a Dokploy upgrade can change field names. Please open an issue with your Dokploy version if something breaks.
-- Build-log tails need the bridge to run on the server where the builds happen.
+| You see                                           | What to do                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `cannot reach Dokploy at http://dokploy:3000`     | Run the bridge on `dokploy-network`, or set `DOKPLOY_URL`.                                 |
+| `cannot read the GitHub App private key`          | The API key isn't an owner's or admin's.                                                   |
+| `403 ... Resource not accessible by integration`  | A permission from the table above is missing, or not yet accepted on the installation.     |
+| `not reporting deployment ... no commit`          | A manual deploy or a rollback: there's no commit to put a check on. Nothing to fix.        |
+| `build log not readable` in a check               | Mount `/etc/dokploy/logs` into the container at the same path.                             |
+| `environment kept (no Administration permission)` | Grant Administration, or set `DELETE_PREVIEW_ENVIRONMENTS=false` to keep the environments. |
 
 ## Development
 
+Prerequisites: Node 22.18 or newer (with Corepack, which provides pnpm).
+
 ```bash
-npm test           # unit tests (node:test, no dependencies)
-npm run check      # syntax check
-DOKPLOY_API_KEY=... DOKPLOY_URL=http://localhost:3000 DATA_DIR=./data DRY_RUN=true ONCE=true npm start
+corepack enable
+pnpm install
+pnpm test                  # every test, no services needed
+pnpm lint && pnpm format:check
 ```
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+How the tests are organised: [tests/README.md](tests/README.md). Architecture, state and conventions: [CLAUDE.md](CLAUDE.md).
+
+## Project structure
+
+```
+src/         the bridge: main loop, Dokploy and GitHub clients, the three features
+tests/       every test: unit, end to end against fake Dokploy and GitHub servers
+scripts/     check-links.mjs, run in CI
+```
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 Walter Mac

@@ -4,15 +4,16 @@
 // state.reported[depId] = { gh, check, repo, sha, checkName, status }  Dokploy deployment -> GitHub
 // state.previews[pdId]  = { repo, githubId, environment, gh: [ids] }   Dokploy preview -> GitHub
 // state.pending[key]    = { repo, sha, gh, check, ... }                build running before Dokploy wrote its record
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
 
 export function createStore(file) {
   let state = { baselined: false, apps: {}, reported: {}, previews: {}, pending: {} };
   try {
-    state = { ...state, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+    state = { ...state, ...JSON.parse(fs.readFileSync(file, "utf8")) };
   } catch (e) {
-    if (e.code !== 'ENOENT') throw new Error(`cannot read state file ${file}: ${e.message}`);
+    if (e.code !== "ENOENT")
+      throw new Error(`cannot read state file ${file}: ${e.message}`, { cause: e });
   }
   const save = () => {
     fs.mkdirSync(path.dirname(file), { recursive: true });

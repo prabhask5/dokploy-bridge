@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // dokploy-bridge: Vercel-style defaults, GitHub Deployments + checks, and preview cleanup for
 // every application on a self-hosted Dokploy. See README.md.
-import fs from 'node:fs';
-import { loadConfig } from './config.mjs';
-import { createLog } from './log.mjs';
-import { createStore } from './store.mjs';
-import { createDokploy, createGitHub } from './clients.mjs';
-import { loadDefaults, applyDefaults } from './defaults.mjs';
-import { syncApp } from './sync.mjs';
-import { isIgnored } from './util.mjs';
+import fs from "node:fs";
+import { loadConfig } from "./config.mjs";
+import { createLog } from "./log.mjs";
+import { createStore } from "./store.mjs";
+import { createDokploy, createGitHub } from "./clients.mjs";
+import { loadDefaults, applyDefaults } from "./defaults.mjs";
+import { syncApp } from "./sync.mjs";
+import { isIgnored } from "./util.mjs";
 
-export const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+export const VERSION = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 export function createContext(cfg, overrides = {}) {
   const log = overrides.log || createLog({ debug: cfg.debug });
@@ -23,22 +25,29 @@ export function createContext(cfg, overrides = {}) {
 export async function tick(ctx) {
   const { cfg, log, dk, store } = ctx;
   const { state } = store;
-  const projects = (await dk('GET', 'project.all')) || [];
+  const projects = (await dk("GET", "project.all")) || [];
   // Newer Dokploy versions nest applications under environments; older ones list them on the project.
   const byId = new Map();
   for (const p of projects) {
-    for (const app of [...(p.applications || []), ...(p.environments || []).flatMap((e) => e.applications || [])]) {
+    for (const app of [
+      ...(p.applications || []),
+      ...(p.environments || []).flatMap((e) => e.applications || []),
+    ]) {
       if (app?.applicationId && !byId.has(app.applicationId)) byId.set(app.applicationId, app);
     }
   }
   const appsList = [...byId.values()];
   const firstRun = !state.baselined;
-  if (cfg.defaults) await loadDefaults(ctx, appsList).catch((e) => log.info(`defaults: ${e.message}`));
+  if (cfg.defaults)
+    await loadDefaults(ctx, appsList).catch((e) => log.info(`defaults: ${e.message}`));
   for (const brief of appsList) {
-    if (isIgnored(brief, cfg.ignoreApps)) { log.debug(`[${brief.name}] ignored`); continue; }
-    const s = state.apps[brief.applicationId] ||= { baseline: firstRun };
+    if (isIgnored(brief, cfg.ignoreApps)) {
+      log.debug(`[${brief.name}] ignored`);
+      continue;
+    }
+    const s = (state.apps[brief.applicationId] ||= { baseline: firstRun });
     try {
-      const a = await dk('GET', `application.one?applicationId=${brief.applicationId}`);
+      const a = await dk("GET", `application.one?applicationId=${brief.applicationId}`);
       if (isIgnored(a, cfg.ignoreApps)) continue;
       if (!s.baseline) await applyDefaults(ctx, a, s, appsList);
       await syncApp(ctx, a, firstRun);
@@ -48,7 +57,9 @@ export async function tick(ctx) {
   }
   if (firstRun) {
     state.baselined = true;
-    log.info(`baseline: ${appsList.length} existing app(s) left as configured; existing deployments not reported`);
+    log.info(
+      `baseline: ${appsList.length} existing app(s) left as configured; existing deployments not reported`,
+    );
   }
   store.save();
   fs.writeFileSync(cfg.heartbeatFile, String(Date.now()));
@@ -56,25 +67,48 @@ export async function tick(ctx) {
 
 async function main() {
   const { cfg, errors } = loadConfig();
-  if (errors.length) { for (const e of errors) console.error(`config: ${e}`); process.exit(1); }
+  if (errors.length) {
+    for (const e of errors) console.error(`config: ${e}`);
+    process.exit(1);
+  }
   let ctx;
-  try { ctx = createContext(cfg); ctx.store.save(); } catch (e) {
-    console.error(`cannot use state file ${cfg.stateFile}: ${e.message}`); process.exit(1);
+  try {
+    ctx = createContext(cfg);
+    ctx.store.save();
+  } catch (e) {
+    console.error(`cannot use state file ${cfg.stateFile}: ${e.message}`);
+    process.exit(1);
   }
   const features = [
-    cfg.defaults && `defaults${cfg.templateApp ? ` (template: ${cfg.templateApp})` : ''}`,
-    cfg.githubDeployments && 'deployments', cfg.githubChecks && 'checks',
-    cfg.previewCleanup && 'preview cleanup', cfg.dryRun && 'DRY RUN',
-  ].filter(Boolean).join(', ');
-  ctx.log.info(`dokploy-bridge ${VERSION} starting: ${features}; polling ${cfg.dokployUrl} every ${cfg.interval / 1000}s`);
+    cfg.defaults && `defaults${cfg.templateApp ? ` (template: ${cfg.templateApp})` : ""}`,
+    cfg.githubDeployments && "deployments",
+    cfg.githubChecks && "checks",
+    cfg.previewCleanup && "preview cleanup",
+    cfg.dryRun && "DRY RUN",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  ctx.log.info(
+    `dokploy-bridge ${VERSION} starting: ${features}; polling ${cfg.dokployUrl} every ${cfg.interval / 1000}s`,
+  );
 
   let stopping = false;
-  for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { stopping = true; ctx.log.info(`${sig}: stopping`); process.exit(0); });
+  for (const sig of ["SIGTERM", "SIGINT"])
+    process.on(sig, () => {
+      stopping = true;
+      ctx.log.info(`${sig}: stopping`);
+      process.exit(0);
+    });
   while (!stopping) {
-    try { await tick(ctx); } catch (e) { ctx.log.info(`tick failed: ${e.message}`); }
+    try {
+      await tick(ctx);
+    } catch (e) {
+      ctx.log.info(`tick failed: ${e.message}`);
+    }
     if (cfg.once) break;
     await new Promise((r) => setTimeout(r, cfg.interval));
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/src/index.mjs')) main();
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("/src/index.mjs"))
+  main();

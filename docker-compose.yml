@@ -1,14 +1,21 @@
-# Run dokploy-bridge next to Dokploy. Copy .env.example to .env and fill it in first.
+# Runs dokploy-bridge next to Dokploy, on the Dokploy server.
+# Copy .env.example to .env and set DOKPLOY_API_KEY first; everything else is optional.
 services:
   dokploy-bridge:
-    image: ghcr.io/prabhask5/dokploy-bridge:latest
-    container_name: dokploy-bridge
+    build: .
+    image: dokploy-bridge:latest
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./data:/data                                # state.json and defaults.json
-      - /etc/dokploy/logs:/etc/dokploy/logs:ro      # build logs, for the check report (optional)
+      # state.json and defaults.json. Keep this between updates, or the bridge starts over.
+      - bridge-data:/data
+      # Dokploy's build logs, so failed checks can show the end of the log. Optional.
+      - /etc/dokploy/logs:/etc/dokploy/logs:ro
+    # Dokploy's network, so http://dokploy:3000 resolves.
     networks: [dokploy-network]
+
+volumes:
+  bridge-data:
 
 networks:
   dokploy-network:

@@ -8,7 +8,7 @@ A companion service for a self-hosted Dokploy that adds what Vercel does on GitH
 
 - a check run and a GitHub Deployment for every production and preview deploy
 - cleanup of a pull request's preview environment when it closes
-- defaults for newly created apps
+- preview follow-ups for newly created apps: the preview port follows the first domain, and previews use the production env vars until customised
 
 One long-running Node.js process, plain JavaScript (ES modules), **no runtime dependencies**. It polls Dokploy's API and acts on GitHub as the GitHub App Dokploy already uses. It runs as a container on the Dokploy server.
 
@@ -28,7 +28,7 @@ Principles, used to break ties:
 | `src/store.mjs`       | `state.json`, loaded once and written atomically (temp file + rename)                    |
 | `src/clients.mjs`     | `dk()`: Dokploy API client. `gh()`: GitHub client authenticating as Dokploy's GitHub App |
 | `src/util.mjs`        | Pure helpers: SHA parsing, URLs, secret masking, environment-name templates, opt-out     |
-| `src/defaults.mjs`    | Feature 1: defaults for new apps, preview port, preview env inheritance                  |
+| `src/previews.mjs`    | Feature 1: preview follow-ups for new apps (preview port, preview env inheritance)       |
 | `src/reporting.mjs`   | Feature 2: deployments, check runs, commit-status fallback, in-progress checks           |
 | `src/cleanup.mjs`     | Feature 3: deleting closed PRs' deployments and environments                             |
 | `src/sync.mjs`        | Per-app orchestration of features 2 and 3                                                |
@@ -41,7 +41,7 @@ Principles, used to break ties:
 1. `GET project.all`, and collect every application, deduplicated by `applicationId`. Newer Dokploy versions nest apps under `environments[]`, older ones list them on the project; both are read.
 2. For each app that isn't ignored (`dokploy-bridge: off` in its description, or listed in `IGNORE_APPS`):
    1. `GET application.one` for the full app: domains, env, recent deployments.
-   2. `applyDefaults()`, only for apps created after the bridge's first run.
+   2. `followUpNewApp()`, only for apps created after the bridge's first run.
    3. `syncApp()`, only for apps using the GitHub provider:
       - report production deployments
       - report preview deployments (`GET previewDeployment.all`)
@@ -73,15 +73,15 @@ Errors are `HttpError`s with a `.status`, and feature code branches on `.status`
 
 `state.json` in `DATA_DIR`. **Its shape is a compatibility promise**, because running installs depend on it: add fields, don't rename or repurpose them.
 
-| Key                             | Shape                                                              | Meaning                                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `baselined`                     | bool                                                               | Set after the first tick. On that tick, existing deployments are recorded with `skipped: true` and not reported. |
-| `apps[applicationId]`           | `{ baseline, defaults, previewPortSynced, previewEnvWritten }`     | `baseline: true` means the app existed before the bridge, so defaults never touch it.                            |
-| `reported[deploymentId]`        | `{ gh, check, repo, sha, checkName, status, skipped?, noted? }`    | Dokploy deployment → GitHub deployment and check run. Reported again only when `status` changes.                 |
-| `previews[previewDeploymentId]` | `{ repo, githubId, environment, gh: [ids], tries? }`               | Live previews, so they can be cleaned up when Dokploy removes them. `tries` caps failed cleanups at 5.           |
-| `pending[key]`                  | `{ repo, sha, gh, check, checkName, environment, at, stoppedAt? }` | In-progress checks posted before Dokploy wrote a record. Key: `<appId>\|prod` or `<appId>\|pr<n>`.               |
+| Key                             | Shape                                                              | Meaning                                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baselined`                     | bool                                                               | Set after the first tick. On that tick, existing deployments are recorded with `skipped: true` and not reported.                                                             |
+| `apps[applicationId]`           | `{ baseline, previewPortSynced, previewEnvWritten, defaults? }`    | `baseline: true` means the app existed before the bridge, so the follow-ups never touch it. `defaults` is left by versions that copied a template app's settings; ignore it. |
+| `reported[deploymentId]`        | `{ gh, check, repo, sha, checkName, status, skipped?, noted? }`    | Dokploy deployment → GitHub deployment and check run. Reported again only when `status` changes.                                                                             |
+| `previews[previewDeploymentId]` | `{ repo, githubId, environment, gh: [ids], tries? }`               | Live previews, so they can be cleaned up when Dokploy removes them. `tries` caps failed cleanups at 5.                                                                       |
+| `pending[key]`                  | `{ repo, sha, gh, check, checkName, environment, at, stoppedAt? }` | In-progress checks posted before Dokploy wrote a record. Key: `<appId>\|prod` or `<appId>\|pr<n>`.                                                                           |
 
-`defaults.json` holds the settings captured from `TEMPLATE_APP`: the keys in `BUILD_KEYS` and `UPDATE_KEYS` in `defaults.mjs`. It's never env vars or domains.
+The bridge doesn't set up new apps beyond their previews: build type, auto-deploy and the rest belong to whoever creates the app (Dokploy's UI, or a CLI such as `moi`). A `defaults.json` or `TEMPLATE_APP` left by older versions is ignored, and the bridge says so once at startup.
 
 ## 4. Invariants and conventions
 
@@ -99,24 +99,23 @@ Errors are `HttpError`s with a `.status`, and feature code branches on `.status`
 
 ## 5. Common tasks
 
-| Change                          | Where                                                                                                                                                       |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a setting                   | `loadConfig()` in `src/config.mjs` (default + validation), `.env.example`, the README table. Test: `tests/unit/config.test.mjs`                             |
-| Change a check's report         | `checkOutput()` in `src/reporting.mjs`. Test: `tests/unit/reporting.test.mjs`                                                                               |
-| Copy another app setting        | Add the key to `BUILD_KEYS` (saved with `saveBuildType`) or `UPDATE_KEYS` (saved with `update`) in `src/defaults.mjs`. Test: `tests/unit/defaults.test.mjs` |
-| Support a new Dokploy API shape | `tick()` in `src/index.mjs` for app listing; `util.mjs` for parsing. Keep the old shape working too.                                                        |
-| Change cleanup                  | `src/cleanup.mjs`. Test: `tests/unit/cleanup.test.mjs`                                                                                                      |
+| Change                          | Where                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Add a setting                   | `loadConfig()` in `src/config.mjs` (default + validation), `.env.example`, the README table. Test: `tests/unit/config.test.mjs` |
+| Change a check's report         | `checkOutput()` in `src/reporting.mjs`. Test: `tests/unit/reporting.test.mjs`                                                   |
+| Change the preview follow-ups   | `src/previews.mjs`. Test: `tests/unit/previews.test.mjs`                                                                        |
+| Support a new Dokploy API shape | `tick()` in `src/index.mjs` for app listing; `util.mjs` for parsing. Keep the old shape working too.                            |
+| Change cleanup                  | `src/cleanup.mjs`. Test: `tests/unit/cleanup.test.mjs`                                                                          |
 
 ### Endpoints used
 
-| Dokploy                          | For                                 |
-| -------------------------------- | ----------------------------------- |
-| `GET project.all`                | Listing apps                        |
-| `GET application.one`            | The full app                        |
-| `GET previewDeployment.all`      | An app's previews                   |
-| `GET github.one`                 | The GitHub App's credentials        |
-| `POST application.saveBuildType` | Defaults: build settings            |
-| `POST application.update`        | Defaults, preview port, preview env |
+| Dokploy                     | For                          |
+| --------------------------- | ---------------------------- |
+| `GET project.all`           | Listing apps                 |
+| `GET application.one`       | The full app                 |
+| `GET previewDeployment.all` | An app's previews            |
+| `GET github.one`            | The GitHub App's credentials |
+| `POST application.update`   | Preview port, preview env    |
 
 | GitHub                                                        | For                                   | Permission                    |
 | ------------------------------------------------------------- | ------------------------------------- | ----------------------------- |

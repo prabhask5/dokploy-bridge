@@ -30,7 +30,6 @@ export function loadConfig(env = process.env) {
     // Loop and files
     interval: Math.max(5, num(env.POLL_SECONDS, 10)) * 1000,
     stateFile: str(env.STATE_FILE, `${dataDir}/state.json`),
-    defaultsFile: str(env.DEFAULTS_FILE, `${dataDir}/defaults.json`),
     heartbeatFile: str(env.HEARTBEAT_FILE, "/tmp/dokploy-bridge.heartbeat"),
     once: bool(env.ONCE, false),
     dryRun: bool(env.DRY_RUN, false),
@@ -38,8 +37,6 @@ export function loadConfig(env = process.env) {
     // Which apps
     ignoreApps: list(env.IGNORE_APPS),
     // Features
-    templateApp: str(env.TEMPLATE_APP, ""),
-    defaults: bool(env.DEFAULTS, true),
     previewPortSync: bool(env.PREVIEW_PORT_SYNC, true),
     previewEnvInherit: bool(env.PREVIEW_ENV_INHERIT, true),
     githubDeployments: bool(env.GITHUB_DEPLOYMENTS, true),
@@ -55,6 +52,11 @@ export function loadConfig(env = process.env) {
     logLinesSuccess: Math.max(0, num(env.LOG_TAIL_LINES_SUCCESS, 25)),
     logLinesFailure: Math.max(0, num(env.LOG_TAIL_LINES_FAILURE, 80)),
   };
+
+  // Settings from versions that copied a template app's settings to new apps (removed).
+  cfg.retiredVars = ["TEMPLATE_APP", "DEFAULTS", "DEFAULTS_FILE"].filter(
+    (k) => env[k] !== undefined,
+  );
 
   const errors = [];
   if (!cfg.apiKey)

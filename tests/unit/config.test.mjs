@@ -8,7 +8,6 @@ test("defaults", () => {
   assert.equal(cfg.dokployUrl, "http://dokploy:3000");
   assert.equal(cfg.interval, 10000);
   assert.equal(cfg.stateFile, "/data/state.json");
-  assert.equal(cfg.defaultsFile, "/data/defaults.json");
   assert.equal(cfg.checkNameProduction, "Dokploy");
   assert.equal(cfg.environmentPreview, "Preview (PR #{pr})");
   assert.equal(cfg.previewCleanup, true);
@@ -47,6 +46,14 @@ test("overrides, booleans, lists, legacy DOKPLOY_INTERNAL_URL", () => {
 
 test("poll interval has a floor of 5s", () => {
   assert.equal(loadConfig({ DOKPLOY_API_KEY: "k", POLL_SECONDS: "1" }).cfg.interval, 5000);
+});
+
+test("retired template settings are reported, not used", () => {
+  assert.deepEqual(
+    loadConfig({ DOKPLOY_API_KEY: "k", TEMPLATE_APP: "shortless" }).cfg.retiredVars,
+    ["TEMPLATE_APP"],
+  );
+  assert.deepEqual(loadConfig({ DOKPLOY_API_KEY: "k" }).cfg.retiredVars, []);
 });
 
 test("validation errors", () => {

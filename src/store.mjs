@@ -1,6 +1,6 @@
 // Persistent state in one JSON file, written atomically.
 //
-// state.apps[appId]     = { baseline, defaults, previewPortSynced, previewEnvWritten }
+// state.apps[appId]     = { baseline, previewPortSynced, previewEnvWritten, defaults? (legacy) }
 // state.reported[depId] = { gh, check, repo, sha, checkName, status }  Dokploy deployment -> GitHub
 // state.previews[pdId]  = { repo, githubId, environment, gh: [ids] }   Dokploy preview -> GitHub
 // state.pending[key]    = { repo, sha, gh, check, ... }                build running before Dokploy wrote its record

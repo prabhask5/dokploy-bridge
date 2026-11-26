@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// dokploy-bridge: Vercel-style defaults, GitHub Deployments + checks, and preview cleanup for
+// dokploy-bridge: GitHub Deployments + checks, preview cleanup and preview follow-ups for
 // every application on a self-hosted Dokploy. See README.md.
 import fs from "node:fs";
 import { loadConfig } from "./config.mjs";
 import { createLog } from "./log.mjs";
 import { createStore } from "./store.mjs";
 import { createDokploy, createGitHub } from "./clients.mjs";
-import { loadDefaults, applyDefaults } from "./defaults.mjs";
+import { followUpNewApp } from "./previews.mjs";
 import { syncApp } from "./sync.mjs";
 import { isIgnored } from "./util.mjs";
 
@@ -38,8 +38,6 @@ export async function tick(ctx) {
   }
   const appsList = [...byId.values()];
   const firstRun = !state.baselined;
-  if (cfg.defaults)
-    await loadDefaults(ctx, appsList).catch((e) => log.info(`defaults: ${e.message}`));
   for (const brief of appsList) {
     if (isIgnored(brief, cfg.ignoreApps)) {
       log.debug(`[${brief.name}] ignored`);
@@ -49,7 +47,7 @@ export async function tick(ctx) {
     try {
       const a = await dk("GET", `application.one?applicationId=${brief.applicationId}`);
       if (isIgnored(a, cfg.ignoreApps)) continue;
-      if (!s.baseline) await applyDefaults(ctx, a, s, appsList);
+      if (!s.baseline) await followUpNewApp(ctx, a, s);
       await syncApp(ctx, a, firstRun);
     } catch (e) {
       log.info(`[${brief.name}] ${e.message}`);
@@ -80,7 +78,7 @@ async function main() {
     process.exit(1);
   }
   const features = [
-    cfg.defaults && `defaults${cfg.templateApp ? ` (template: ${cfg.templateApp})` : ""}`,
+    (cfg.previewPortSync || cfg.previewEnvInherit) && "preview follow-ups",
     cfg.githubDeployments && "deployments",
     cfg.githubChecks && "checks",
     cfg.previewCleanup && "preview cleanup",
@@ -88,6 +86,11 @@ async function main() {
   ]
     .filter(Boolean)
     .join(", ");
+  if (cfg.retiredVars.length) {
+    ctx.log.info(
+      `${cfg.retiredVars.join(", ")} no longer do anything: dokploy-bridge doesn't copy settings to new apps any more. Remove them.`,
+    );
+  }
   ctx.log.info(
     `dokploy-bridge ${VERSION} starting: ${features}; polling ${cfg.dokployUrl} every ${cfg.interval / 1000}s`,
   );

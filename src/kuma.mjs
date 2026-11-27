@@ -1,14 +1,14 @@
 // A minimal Uptime Kuma client. Kuma (1.x) has no REST API for monitors or status pages; its own
 // UI does everything over Socket.IO, so this speaks just enough of that protocol (Engine.IO v4
-// frames over a WebSocket) to log in, add and delete monitors, and save a status page.
+// frames over a WebSocket) to log in and add and delete monitors.
 //
 // Frames: "0{…}" open, "40" connect, "2"/"3" ping/pong, "42[event, …]" event,
 // "42<id>[event, …]" event expecting an ack, "43<id>[result]" the ack.
-// Reads go through even in DRY_RUN; add/deleteMonitor/saveStatusPage are only logged.
+// Reads go through even in DRY_RUN; add and deleteMonitor are only logged.
 
-const WRITES = new Set(["add", "deleteMonitor", "saveStatusPage"]);
+const WRITES = new Set(["add", "deleteMonitor"]);
 
-export function createKuma({ cfg, log, WebSocketImpl = globalThis.WebSocket, fetchImpl = fetch }) {
+export function createKuma({ cfg, log, WebSocketImpl = globalThis.WebSocket }) {
   const base = cfg.kuma.url;
   let ws = null;
   let nextId = 0;
@@ -114,21 +114,10 @@ export function createKuma({ cfg, log, WebSocketImpl = globalThis.WebSocket, fet
     events.clear();
   }
 
-  // The status page's groups, from Kuma's public status-page endpoint (it's the only place that
-  // lists them). saveStatusPage replaces every group, so callers send back the whole list.
-  async function statusPageGroups(slug) {
-    const r = await fetchImpl(`${base}/api/status-page/${encodeURIComponent(slug)}`, {
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!r.ok) throw new Error(`Kuma status page "${slug}" -> ${r.status}`);
-    return (await r.json()).publicGroupList || [];
-  }
-
   return {
     connect,
     close,
     call,
-    statusPageGroups,
     monitors: () => Object.values(events.get("monitorList") || {}),
     notifications: () => Object.values(events.get("notificationList") || {}),
   };

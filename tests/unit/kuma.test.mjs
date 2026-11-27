@@ -79,29 +79,16 @@ test("a bad login or 2FA is an error that names the fix", async () => {
 });
 
 test("DRY_RUN logs writes instead of sending them; reads still go through", async () => {
-  const { FakeWS, seen } = fakeServer({ answers: { getStatusPage: { ok: true, config: {} } } });
+  const { FakeWS, seen } = fakeServer();
   const log = recordingLog();
   const kuma = createKuma({ cfg: cfgWith({ DRY_RUN: "true" }), log, WebSocketImpl: FakeWS });
   await kuma.connect();
   const res = await kuma.call("add", { name: "Planner" });
   assert.ok(res.monitorID < 0);
   await kuma.call("deleteMonitor", 3);
-  await kuma.call("saveStatusPage", "moi", {}, "", []);
-  await kuma.call("getStatusPage", "moi");
   assert.deepEqual(
     seen.events.map((e) => e[0]),
-    ["login", "getStatusPage"],
+    ["login"],
   );
   assert.match(log.lines.join("\n"), /\[dry-run\] Kuma add Planner/);
-});
-
-test("status page groups come from Kuma's public status page endpoint", async () => {
-  const urls = [];
-  const fetchImpl = async (url) => {
-    urls.push(url);
-    return { ok: true, json: async () => ({ publicGroupList: [{ id: 1, name: "Apps" }] }) };
-  };
-  const kuma = createKuma({ cfg: cfgWith(), log: recordingLog(), fetchImpl });
-  assert.deepEqual(await kuma.statusPageGroups("moi"), [{ id: 1, name: "Apps" }]);
-  assert.deepEqual(urls, ["http://kuma:3001/api/status-page/moi"]);
 });

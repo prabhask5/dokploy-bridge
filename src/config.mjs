@@ -71,8 +71,6 @@ export function loadConfig(env = process.env) {
       url: stripSlash(str(env.KUMA_URL, "")),
       username: str(env.KUMA_USERNAME, ""),
       password: str(env.KUMA_PASSWORD, ""),
-      statusPage: str(env.KUMA_STATUS_PAGE, ""),
-      statusGroup: str(env.KUMA_STATUS_GROUP, "Services"),
       interval: num(env.KUMA_MONITOR_INTERVAL, 60),
       retries: num(env.KUMA_MONITOR_RETRIES, 2),
       retryInterval: num(env.KUMA_MONITOR_RETRY_INTERVAL, 20),

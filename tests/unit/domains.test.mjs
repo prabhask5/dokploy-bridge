@@ -11,8 +11,6 @@ const KUMA = {
   KUMA_URL: "http://kuma:3001",
   KUMA_USERNAME: "bridge",
   KUMA_PASSWORD: "secret",
-  KUMA_STATUS_PAGE: "moi",
-  KUMA_STATUS_GROUP: "Applications",
 };
 const DOMAINS = {
   NEW_DOMAIN_HTTPS: "true",
@@ -20,32 +18,22 @@ const DOMAINS = {
   NEW_DOMAIN_PORT_FROM_DOCKERFILE: "true",
 };
 
-// A fake Kuma: monitors, notifications and one status page, with a log of every call.
-function fakeKuma({ monitors = [], groups } = {}) {
+// A fake Kuma: monitors and notifications, with a log of every call.
+function fakeKuma({ monitors = [] } = {}) {
   const db = {
-    monitors: [...monitors],
+    monitors: [
+      ...monitors,
+      ...[1, 3]
+        .filter((id) => !monitors.some((m) => m.id === id))
+        .map((id) => ({ id, name: `Other ${id}`, url: `https://m${id}.example.org` })),
+    ],
     notifications: [
       { id: 1, name: "Email", isDefault: true },
       { id: 2, name: "Pager", isDefault: false },
     ],
-    groups: groups || [
-      {
-        id: 10,
-        name: "Applications",
-        monitorList: [
-          { id: 1, name: "Compiler", sendUrl: 0 },
-          { id: 2, name: "Stellar Planner", sendUrl: 1 },
-        ],
-      },
-      { id: 11, name: "Infrastructure", monitorList: [{ id: 3, name: "AdGuard", sendUrl: 0 }] },
-    ],
     calls: [],
     connects: 0,
   };
-  // Every monitor on the page exists in Kuma too.
-  for (const m of db.groups.flatMap((g) => g.monitorList))
-    if (!db.monitors.some((x) => x.id === m.id))
-      db.monitors.push({ id: m.id, name: m.name, url: `https://m${m.id}.example.org` });
   let next = 50;
   const kuma = {
     async connect() {
@@ -54,7 +42,6 @@ function fakeKuma({ monitors = [], groups } = {}) {
     close() {},
     monitors: () => db.monitors,
     notifications: () => db.notifications,
-    statusPageGroups: async () => structuredClone(db.groups),
     async call(event, ...args) {
       db.calls.push([event, ...args]);
       if (event === "add") {
@@ -64,16 +51,6 @@ function fakeKuma({ monitors = [], groups } = {}) {
       }
       if (event === "deleteMonitor") {
         db.monitors = db.monitors.filter((m) => m.id !== args[0]);
-        return { ok: true };
-      }
-      if (event === "getStatusPage")
-        return { ok: true, config: { slug: args[0], title: "moi", icon: "/upload/logo1.png" } };
-      if (event === "saveStatusPage") {
-        const names = new Map(db.monitors.map((m) => [m.id, m.name]));
-        db.groups = args[3].map((g) => ({
-          ...g,
-          monitorList: g.monitorList.map((m) => ({ ...m, name: names.get(m.id) })),
-        }));
         return { ok: true };
       }
       throw new Error(`fake Kuma: unhandled ${event}`);
@@ -180,7 +157,7 @@ test("without NEW_DOMAIN_* settings domains are never updated", async () => {
   assert.deepEqual(writes, []);
 });
 
-test("a monitor waits for the first successful deploy, then joins the group alphabetically", async () => {
+test("a monitor waits for the first successful deploy", async () => {
   const { run, db, state } = setup();
   await run([stellar()]);
   await run([stellar({ applicationStatus: "idle", domains: [dom()] })]);
@@ -198,21 +175,8 @@ test("a monitor waits for the first successful deploy, then joins the group alph
   assert.equal(add.retryInterval, 20);
   assert.equal(add.expiryNotification, true);
 
-  const save = db.calls.find((c) => c[0] === "saveStatusPage");
-  assert.equal(save[1], "moi");
-  assert.equal(save[3], "/upload/logo1.png", "the logo is kept");
-  assert.deepEqual(
-    db.groups[0].monitorList.map((m) => m.name),
-    ["Compiler", "Stellar", "Stellar Planner"],
-  );
-  assert.deepEqual(db.groups[0].monitorList[2], { id: 2, sendUrl: 1, name: "Stellar Planner" });
-  assert.deepEqual(
-    db.groups[1].monitorList.map((m) => m.id),
-    [3],
-    "other groups are kept",
-  );
   assert.equal(state.domains.d1.created, true);
-  assert.equal(state.domains.d1.listed, true);
+  assert.ok(!db.calls.some((c) => /StatusPage/.test(c[0])), "status pages are left to you");
 
   await run([stellar({ domains: [dom()] })]);
   assert.equal(db.calls.filter((c) => c[0] === "add").length, 1, "created once");
@@ -227,7 +191,6 @@ test("without markers the monitor is a plain HTTP check named after the app", as
   assert.equal(add.type, "http");
   assert.equal(add.url, "https://planner.example.com");
   assert.deepEqual(add.notificationIDList, { 2: true });
-  assert.equal(db.groups[0].monitorList[1].name, "stellar", "sorted case-insensitively");
 });
 
 test("a second domain's monitor carries its host", () => {
@@ -317,31 +280,6 @@ test("a renamed domain gets a new monitor in place of ours", async () => {
   assert.equal(
     db.monitors.find((m) => m.id === state.domains.d1.monitorId).url,
     "https://plan.example.com/api/health",
-  );
-});
-
-test("a status page without the group is reported once and retried", async () => {
-  const { run, db, state, ctx } = setup(undefined, {
-    groups: [{ id: 10, name: "Services", monitorList: [] }],
-  });
-  await run([stellar()]);
-  await run([stellar({ domains: [dom()] })]);
-  await run([stellar({ domains: [dom()] })]);
-  assert.equal(db.calls.filter((c) => c[0] === "saveStatusPage").length, 0);
-  assert.equal(state.domains.d1.listed, false);
-  assert.equal(ctx.log.lines.filter((l) => /has no group "Applications"/.test(l)).length, 1);
-  assert.equal(db.calls.filter((c) => c[0] === "getStatusPage").length, 2, "retried next tick");
-});
-
-test("a monitor deleted since the page was cached isn't sent back", async () => {
-  const { run, db } = setup();
-  db.monitors = db.monitors.filter((m) => m.id !== 1); // "Compiler" deleted in Kuma
-  await run([stellar()]);
-  await run([stellar({ domains: [dom()] })]);
-  const sent = db.calls.find((c) => c[0] === "saveStatusPage")[4];
-  assert.deepEqual(
-    sent[0].monitorList.map((m) => m.id),
-    [50, 2],
   );
 });
 

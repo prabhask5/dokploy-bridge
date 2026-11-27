@@ -9,7 +9,7 @@ Vercel-style GitHub integration for a self-hosted [Dokploy](https://dokploy.com)
 - **Previews that clean up.** When a pull request is closed or merged and Dokploy removes its preview, the preview's GitHub deployments and environment are deleted. The Deployments view only lists what's live.
 - **Settings for new apps.** Apps you create can start with rollbacks and your preview settings (wildcard domain, HTTPS, certificate, limit, collaborators only), set once from `NEW_APP_*` variables. For apps from GitHub, the preview port follows the app's first domain, and previews use the production environment variables until you set your own.
 - **Domains that just work.** A domain you add can get HTTPS, your certificate setting and the port from the app's Dockerfile `EXPOSE`, set once from `NEW_DOMAIN_*` variables, so you only type the host.
-- **Uptime monitors.** With [Uptime Kuma](https://github.com/louislam/uptime-kuma) 1.23, a domain you add gets a monitor once the app has deployed, listed in alphabetical order in a group of your status page. Removing the domain or the app deletes the monitor. Preview domains get none. See [Uptime monitors](#uptime-monitors).
+- **Uptime monitors.** With [Uptime Kuma](https://github.com/louislam/uptime-kuma) 1.23, a domain you add gets a monitor once the app has deployed. Removing the domain or the app deletes the monitor. Preview domains get none. See [Uptime monitors](#uptime-monitors).
 - **Leaves what exists alone.** On its first run the bridge only records the apps and deployments already there; it doesn't change or report them.
 
 ## Self-hosting
@@ -76,7 +76,6 @@ Only `DOKPLOY_API_KEY` is required. All of them are listed with their defaults i
 | `NEW_APP_PREVIEWS`, `NEW_APP_PREVIEW_WILDCARD`, `NEW_APP_PREVIEW_HTTPS`, `NEW_APP_PREVIEW_CERTIFICATE`, `NEW_APP_PREVIEW_LIMIT`, `NEW_APP_PREVIEW_COLLABORATORS_ONLY`                                                           | Preview settings for new apps, applied once they deploy from GitHub. Unset ones keep Dokploy's default.                                          |
 | `NEW_DOMAIN_HTTPS`, `NEW_DOMAIN_CERTIFICATE`, `NEW_DOMAIN_PORT_FROM_DOCKERFILE`                                                                                                                                                 | Settings for domains added from now on, applied once. The port is read from the Dockerfile's last `EXPOSE` (Dockerfile builds from GitHub only). |
 | `KUMA_URL`, `KUMA_USERNAME`, `KUMA_PASSWORD`                                                                                                                                                                                    | Turn uptime monitors on. The user must not have 2FA on.                                                                                          |
-| `KUMA_STATUS_PAGE`, `KUMA_STATUS_GROUP`                                                                                                                                                                                         | The status page slug and group new monitors join. Default group `Services`; no page unless set.                                                  |
 | `KUMA_MONITOR_INTERVAL`, `KUMA_MONITOR_RETRIES`, `KUMA_MONITOR_RETRY_INTERVAL`, `KUMA_MONITOR_TIMEOUT`, `KUMA_MONITOR_RESEND`, `KUMA_MONITOR_EXPIRY_NOTIFICATION`, `KUMA_MONITOR_MAX_REDIRECTS`, `KUMA_MONITOR_ACCEPTED_STATUS` | Settings for new monitors. Defaults `60`, `2`, `20`, `48`, `0`, `true`, `10`, `200-299`.                                                         |
 | `KUMA_MONITOR_NOTIFICATIONS`                                                                                                                                                                                                    | Comma-separated notification names. Default: the ones marked default in Kuma.                                                                    |
 | `KUMA_MAX_DELETES_PER_TICK`                                                                                                                                                                                                     | Refuse to delete more monitors than this at once. Default `3`.                                                                                   |
@@ -106,7 +105,7 @@ keyword: ok                 makes it a keyword monitor that needs this text in t
 
 - Domains that existed when the feature was turned on are left alone.
 - If a monitor for the domain's host already exists, the bridge uses it and never deletes it. Only monitors it created are deleted.
-- The status page group is kept in alphabetical order; the other groups are sent back to Kuma exactly as they were.
+- Monitors aren't added to any status page; that's left to you.
 
 ### Updating, starting over, security
 
@@ -126,7 +125,6 @@ keyword: ok                 makes it a keyword monitor that needs this text in t
 | `build log not readable` in a check               | Mount `/etc/dokploy/logs` into the container at the same path.                             |
 | `environment kept (no Administration permission)` | Grant Administration, or set `DELETE_PREVIEW_ENVIRONMENTS=false` to keep the environments. |
 | `cannot reach Uptime Kuma`                        | Connect Kuma's container to `dokploy-network`, or fix `KUMA_URL`.                          |
-| `status page "…" has no group "…"`                | Set `KUMA_STATUS_GROUP` to the group's name as it appears on the page.                     |
 
 ## Development
 

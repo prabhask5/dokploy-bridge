@@ -1,6 +1,6 @@
 // Application domains added after this feature first ran:
 //  - NEW_DOMAIN_* settings are applied once (HTTPS, certificate, port from the Dockerfile)
-//  - an Uptime Kuma monitor is created once the app has deployed, and listed on a status page
+//  - an Uptime Kuma monitor is created once the app has deployed
 //  - that monitor is deleted when the domain or its app is removed
 // Domains that already existed are recorded and left alone, and so are monitors made by hand.
 import {
@@ -77,7 +77,6 @@ export async function syncDomains(ctx, apps, listed) {
       }
       if (cfg.kuma.url && rec.monitor === "pending" && hasDeployed(a))
         kumaWork.push({ kind: "create", rec, a, d });
-      else if (rec.created && rec.monitorId && !rec.listed) kumaWork.push({ kind: "list", rec, a });
     }
   }
 
@@ -111,7 +110,6 @@ export async function syncDomains(ctx, apps, listed) {
       const label = w.a ? `[${w.a.name}] ` : "";
       try {
         if (w.kind === "create") await createMonitor(ctx, kuma, w.a, w.d, w.rec);
-        else if (w.kind === "list") await listMonitor(ctx, kuma, w.rec);
         else {
           await kuma.call("deleteMonitor", w.rec.monitorId);
           log.info(`${label}monitor for ${w.rec.host} deleted`);
@@ -239,54 +237,7 @@ async function createMonitor(ctx, kuma, a, d, rec) {
     monitorId: res.monitorID,
     created: true,
     name: monitor.name,
-    listed: !cfg.kuma.statusPage,
   });
   ctx.store.save();
   log.info(`[${a.name}] monitor "${monitor.name}" created for ${monitor.url}`);
-  if (cfg.kuma.statusPage) await listMonitor(ctx, kuma, rec);
-}
-
-// Adds the monitor to the status page group, keeping the group in alphabetical order.
-// saveStatusPage replaces the page's groups wholesale, so every group is sent back unchanged.
-export async function listMonitor(ctx, kuma, rec) {
-  const { cfg, log } = ctx;
-  const { statusPage: slug, statusGroup } = cfg.kuma;
-  const { config } = await kuma.call("getStatusPage", slug);
-  const groups = await kuma.statusPageGroups(slug);
-  const group = groups.find((g) => g.name.toLowerCase() === statusGroup.toLowerCase());
-  if (!group) {
-    log.once(
-      `kuma-group-${slug}-${statusGroup}`,
-      `status page "${slug}" has no group "${statusGroup}" (set KUMA_STATUS_GROUP); monitors aren't added to it`,
-    );
-    return;
-  }
-  if (!group.monitorList.some((m) => m.id === rec.monitorId)) {
-    const name = rec.name || rec.host;
-    const at = group.monitorList.findIndex(
-      (m) => m.name.localeCompare(name, undefined, { sensitivity: "base" }) > 0,
-    );
-    group.monitorList.splice(at < 0 ? group.monitorList.length : at, 0, {
-      id: rec.monitorId,
-      name,
-    });
-    const live = new Set(kuma.monitors().map((m) => m.id));
-    await kuma.call(
-      "saveStatusPage",
-      slug,
-      config,
-      config.icon,
-      groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        // The public page can be cached for a few minutes; a monitor deleted since then would
-        // make Kuma fail halfway through rewriting the groups.
-        monitorList: g.monitorList
-          .filter((m) => m.id === rec.monitorId || live.has(m.id))
-          .map((m) => ({ id: m.id, sendUrl: m.sendUrl })),
-      })),
-    );
-    log.info(`monitor "${name}" added to "${group.name}" on status page "${slug}"`);
-  }
-  rec.listed = true;
 }

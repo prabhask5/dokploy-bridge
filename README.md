@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" alt="" width="88" align="right">
+
 # dokploy-bridge
 
 Vercel-style GitHub integration for a self-hosted [Dokploy](https://dokploy.com). Every push and pull request gets a deployment in GitHub's Deployments view and a ✅ or ❌ check with a build report, and previews clean themselves up when the PR closes. A small companion container that you run next to Dokploy, with nothing to set up per repository.
@@ -146,6 +148,7 @@ How the tests are organised: [tests/README.md](tests/README.md). Architecture, s
 src/         the bridge: main loop, Dokploy, GitHub and Uptime Kuma clients, the features
 tests/       every test: unit, end to end against fake Dokploy and GitHub servers
 scripts/     check-links.mjs, run in CI
+assets/      the icon (icon.svg; icon.png to upload as the Dokploy app's icon)
 ```
 
 ## License

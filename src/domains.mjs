@@ -66,7 +66,12 @@ export async function syncDomains(ctx, apps, listed) {
       try {
         if (!rec.filled) await fillDomain(ctx, a, d, rec);
       } catch (e) {
-        log.info(`[${a.name}] ${d.host}: ${e.message}`);
+        rec.fillTries = (rec.fillTries || 0) + 1;
+        if (rec.fillTries >= 5) {
+          rec.filled = true;
+          log.info(`[${a.name}] ${d.host}: giving up on NEW_DOMAIN_* settings: ${e.message}`);
+        } else log.info(`[${a.name}] ${d.host}: ${e.message}`);
+        store.save();
       }
       if (rec.host !== d.host) {
         // Renamed in Dokploy: replace our monitor for the old name.
@@ -75,7 +80,8 @@ export async function syncDomains(ctx, apps, listed) {
         if (rec.monitor !== "n/a") rec.monitor = "pending";
         store.save();
       }
-      if (cfg.kuma.url && rec.monitor === "pending" && hasDeployed(a))
+      // The monitor waits for the settings above, so it gets the final scheme and port.
+      if (cfg.kuma.url && rec.monitor === "pending" && rec.filled && hasDeployed(a))
         kumaWork.push({ kind: "create", rec, a, d });
     }
   }
@@ -151,7 +157,7 @@ async function fillDomain(ctx, a, d, rec) {
   if (nd.certificate !== undefined && d.certificateType !== nd.certificate)
     patch.certificateType = nd.certificate;
   if (Object.keys(patch).length) {
-    await dk("POST", "domain.update", { domainId: d.domainId, ...patch });
+    await dk("POST", "domain.update", domainUpdate(d, patch));
     Object.assign(d, patch);
     log.info(
       `[${a.name}] ${d.host}: ${Object.entries(patch)
@@ -164,6 +170,25 @@ async function fillDomain(ctx, a, d, rec) {
   }
   rec.filled = true;
   store.save();
+}
+
+// domain.update validates the whole domain, not just the fields being changed: host and
+// customCertResolver are required, and https needs a certificate type. So the domain's
+// current values go along with the patch.
+export function domainUpdate(d, patch) {
+  const next = { ...d, ...patch };
+  const body = {
+    domainId: d.domainId,
+    host: next.host,
+    path: next.path,
+    port: next.port,
+    https: next.https,
+    certificateType: next.certificateType || (next.https ? "none" : undefined),
+    customCertResolver: next.customCertResolver ?? "",
+    internalPath: next.internalPath,
+    stripPath: next.stripPath,
+  };
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== null));
 }
 
 export function monitorFor(cfg, a, d, notifications) {

@@ -7,8 +7,10 @@ import { createLog } from "./log.mjs";
 import { createStore } from "./store.mjs";
 import { createDokploy, createGitHub } from "./clients.mjs";
 import { followUpNewApp } from "./previews.mjs";
+import { applyNewAppSettings, newAppState } from "./newapps.mjs";
 import { syncApp } from "./sync.mjs";
 import { isIgnored } from "./util.mjs";
+import { hasNewAppSettings } from "./newapps.mjs";
 
 export const VERSION = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -43,11 +45,16 @@ export async function tick(ctx) {
       log.debug(`[${brief.name}] ignored`);
       continue;
     }
+    const fresh = !state.apps[brief.applicationId];
     const s = (state.apps[brief.applicationId] ||= { baseline: firstRun });
+    s.newApp ??= newAppState(fresh && !firstRun);
     try {
       const a = await dk("GET", `application.one?applicationId=${brief.applicationId}`);
       if (isIgnored(a, cfg.ignoreApps)) continue;
-      if (!s.baseline) await followUpNewApp(ctx, a, s);
+      if (!s.baseline) {
+        await applyNewAppSettings(ctx, a, s);
+        await followUpNewApp(ctx, a, s);
+      }
       await syncApp(ctx, a, firstRun);
     } catch (e) {
       log.info(`[${brief.name}] ${e.message}`);
@@ -79,6 +86,7 @@ async function main() {
   }
   const features = [
     (cfg.previewPortSync || cfg.previewEnvInherit) && "preview follow-ups",
+    hasNewAppSettings(cfg) && "new-app settings",
     cfg.githubDeployments && "deployments",
     cfg.githubChecks && "checks",
     cfg.previewCleanup && "preview cleanup",

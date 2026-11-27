@@ -56,6 +56,37 @@ test("retired template settings are reported, not used", () => {
   assert.deepEqual(loadConfig({ DOKPLOY_API_KEY: "k" }).cfg.retiredVars, []);
 });
 
+test("new-app settings: unset means leave alone; values parsed and validated", () => {
+  assert.deepEqual(loadConfig({ DOKPLOY_API_KEY: "k" }).cfg.newApp, {
+    previews: undefined,
+    previewWildcard: undefined,
+    previewHttps: undefined,
+    previewCertificate: undefined,
+    previewLimit: undefined,
+    previewCollaboratorsOnly: undefined,
+    rollbackRegistry: undefined,
+  });
+  const { cfg, errors } = loadConfig({
+    DOKPLOY_API_KEY: "k",
+    NEW_APP_PREVIEWS: "false",
+    NEW_APP_PREVIEW_LIMIT: "2",
+    NEW_APP_PREVIEW_WILDCARD: " *.example.com ",
+  });
+  assert.deepEqual(errors, []);
+  assert.equal(cfg.newApp.previews, false);
+  assert.equal(cfg.newApp.previewLimit, 2);
+  assert.equal(cfg.newApp.previewWildcard, "*.example.com");
+  const bad = loadConfig({
+    DOKPLOY_API_KEY: "k",
+    NEW_APP_PREVIEWS: "sure",
+    NEW_APP_PREVIEW_CERTIFICATE: "acme",
+    NEW_APP_PREVIEW_LIMIT: "0",
+  }).errors.join("\n");
+  assert.match(bad, /NEW_APP_PREVIEWS must be true or false/);
+  assert.match(bad, /NEW_APP_PREVIEW_CERTIFICATE must be none, letsencrypt or custom/);
+  assert.match(bad, /NEW_APP_PREVIEW_LIMIT must be a whole number/);
+});
+
 test("validation errors", () => {
   assert.match(loadConfig({}).errors.join(), /DOKPLOY_API_KEY is required/);
   assert.match(

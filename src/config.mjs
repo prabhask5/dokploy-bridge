@@ -10,6 +10,10 @@ const num = (v, def) => {
 };
 const str = (v, def) => (v === undefined || v === "" ? def : String(v));
 const stripSlash = (s) => s.replace(/\/+$/, "");
+// Optional settings: undefined when unset, so "not set" means "leave Dokploy's value alone".
+const opt = (v) => (v === undefined || String(v).trim() === "" ? undefined : String(v).trim());
+const BOOL_RE = /^(1|0|true|false|yes|no|on|off)$/i;
+const optBool = (v) => (opt(v) === undefined ? undefined : /^(1|true|yes|on)$/i.test(opt(v)));
 const list = (v) =>
   String(v || "")
     .split(",")
@@ -43,6 +47,19 @@ export function loadConfig(env = process.env) {
     githubChecks: bool(env.GITHUB_CHECKS, true),
     previewCleanup: bool(env.PREVIEW_CLEANUP, true),
     deletePreviewEnvironments: bool(env.DELETE_PREVIEW_ENVIRONMENTS, true),
+    // Settings applied once to apps created after the bridge's first run (all optional)
+    newApp: {
+      previews: optBool(env.NEW_APP_PREVIEWS),
+      previewWildcard: opt(env.NEW_APP_PREVIEW_WILDCARD),
+      previewHttps: optBool(env.NEW_APP_PREVIEW_HTTPS),
+      previewCertificate: opt(env.NEW_APP_PREVIEW_CERTIFICATE),
+      previewLimit:
+        opt(env.NEW_APP_PREVIEW_LIMIT) === undefined
+          ? undefined
+          : Number(env.NEW_APP_PREVIEW_LIMIT),
+      previewCollaboratorsOnly: optBool(env.NEW_APP_PREVIEW_COLLABORATORS_ONLY),
+      rollbackRegistry: opt(env.NEW_APP_ROLLBACK_REGISTRY),
+    },
     // Names shown on GitHub
     checkNameProduction: str(env.CHECK_NAME_PRODUCTION, "Dokploy"),
     checkNamePreview: str(env.CHECK_NAME_PREVIEW, "Dokploy Preview"),
@@ -72,6 +89,21 @@ export function loadConfig(env = process.env) {
   ]) {
     if (v && !/^https?:\/\/[^/]/.test(v)) errors.push(`${k} must be an http(s) URL, got "${v}"`);
   }
+  for (const k of [
+    "NEW_APP_PREVIEWS",
+    "NEW_APP_PREVIEW_HTTPS",
+    "NEW_APP_PREVIEW_COLLABORATORS_ONLY",
+  ]) {
+    if (opt(env[k]) !== undefined && !BOOL_RE.test(opt(env[k])))
+      errors.push(`${k} must be true or false, got "${env[k]}"`);
+  }
+  const { previewCertificate: cert, previewLimit: limit } = cfg.newApp;
+  if (cert !== undefined && !["none", "letsencrypt", "custom"].includes(cert))
+    errors.push(`NEW_APP_PREVIEW_CERTIFICATE must be none, letsencrypt or custom, got "${cert}"`);
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1))
+    errors.push(
+      `NEW_APP_PREVIEW_LIMIT must be a whole number of 1 or more, got "${env.NEW_APP_PREVIEW_LIMIT}"`,
+    );
   if (cfg.checkNameProduction === cfg.checkNamePreview)
     errors.push("CHECK_NAME_PRODUCTION and CHECK_NAME_PREVIEW must differ");
   return { cfg, errors };

@@ -7,7 +7,7 @@ Vercel-style GitHub integration for a self-hosted [Dokploy](https://dokploy.com)
 - **Checks on every commit.** A check named `Dokploy` (production) or `Dokploy Preview` (pull requests) spins while Dokploy builds. It then ends ✅ with the live URL and build time, or ❌ with the error and the last lines of the build log, with the app's secrets masked.
 - **GitHub Deployments.** Each deploy shows up as `Production` or `Preview (PR #n)` in the repository's Deployments sidebar, with a **View deployment** button on the pull request.
 - **Previews that clean up.** When a pull request is closed or merged and Dokploy removes its preview, the preview's GitHub deployments and environment are deleted. The Deployments view only lists what's live.
-- **Previews that just work for new apps.** For apps you create from GitHub, the preview port follows the app's first domain, and previews use the production environment variables until you set your own.
+- **Settings for new apps.** Apps you create can start with rollbacks and your preview settings (wildcard domain, HTTPS, certificate, limit, collaborators only), set once from `NEW_APP_*` variables. For apps from GitHub, the preview port follows the app's first domain, and previews use the production environment variables until you set your own.
 - **Leaves what exists alone.** On its first run the bridge only records the apps and deployments already there; it doesn't change or report them.
 
 ## Self-hosting
@@ -23,7 +23,7 @@ git clone https://github.com/prabhask5/dokploy-bridge.git && cd dokploy-bridge
 cp .env.example .env
 nano .env                  # set DOKPLOY_API_KEY, and ideally DOKPLOY_PUBLIC_URL
 docker compose up -d --build
-docker compose logs -f     # "dokploy-bridge 0.2.0 starting", then "baseline: N existing app(s)"
+docker compose logs -f     # "dokploy-bridge 0.3.0 starting", then "baseline: N existing app(s)"
 ```
 
 Then push a commit to any app's repository, and its check appears on GitHub within a few seconds.
@@ -62,21 +62,23 @@ After changing permissions, GitHub asks you to **accept them** on each installat
 
 Only `DOKPLOY_API_KEY` is required. All of them are listed with their defaults in [`.env.example`](.env.example).
 
-| Variable                                           | Purpose                                                                                                     |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `DOKPLOY_API_KEY`                                  | An owner or admin API key. Required.                                                                        |
-| `DOKPLOY_PUBLIC_URL`                               | Your dashboard's public address, for "Open in Dokploy" links on GitHub.                                     |
-| `DOKPLOY_URL`                                      | Where the bridge reaches Dokploy's API. Default `http://dokploy:3000`.                                      |
-| `POLL_SECONDS`                                     | How often to check Dokploy. Default `10`.                                                                   |
-| `IGNORE_APPS`                                      | Comma-separated apps to leave alone. An app can also opt out with `dokploy-bridge: off` in its description. |
-| `PREVIEW_PORT_SYNC`, `PREVIEW_ENV_INHERIT`         | Turn the preview follow-ups for new apps off.                                                               |
-| `GITHUB_DEPLOYMENTS`, `GITHUB_CHECKS`              | Turn deployments or checks off. Without checks, the bridge uses commit statuses.                            |
-| `PREVIEW_CLEANUP`, `DELETE_PREVIEW_ENVIRONMENTS`   | Turn cleanup off, or keep the empty environment (if you don't grant Administration).                        |
-| `CHECK_NAME_PRODUCTION`, `CHECK_NAME_PREVIEW`      | The check names. Default `Dokploy` and `Dokploy Preview`.                                                   |
-| `ENVIRONMENT_PRODUCTION`, `ENVIRONMENT_PREVIEW`    | The GitHub environment names. The preview one must contain `{pr}`.                                          |
-| `LOG_TAIL_LINES_SUCCESS`, `LOG_TAIL_LINES_FAILURE` | Lines of the build log in a check. `0` for none.                                                            |
-| `DRY_RUN`                                          | `true` logs every change instead of making it.                                                              |
-| `LOG_LEVEL`                                        | `debug` for more detail.                                                                                    |
+| Variable                                                                                                                                                              | Purpose                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `DOKPLOY_API_KEY`                                                                                                                                                     | An owner or admin API key. Required.                                                                        |
+| `DOKPLOY_PUBLIC_URL`                                                                                                                                                  | Your dashboard's public address, for "Open in Dokploy" links on GitHub.                                     |
+| `DOKPLOY_URL`                                                                                                                                                         | Where the bridge reaches Dokploy's API. Default `http://dokploy:3000`.                                      |
+| `POLL_SECONDS`                                                                                                                                                        | How often to check Dokploy. Default `10`.                                                                   |
+| `IGNORE_APPS`                                                                                                                                                         | Comma-separated apps to leave alone. An app can also opt out with `dokploy-bridge: off` in its description. |
+| `PREVIEW_PORT_SYNC`, `PREVIEW_ENV_INHERIT`                                                                                                                            | Turn the preview follow-ups for new apps off.                                                               |
+| `NEW_APP_ROLLBACK_REGISTRY`                                                                                                                                           | Turn rollbacks on for new apps, using this registry (its name or ID in Dokploy).                            |
+| `NEW_APP_PREVIEWS`, `NEW_APP_PREVIEW_WILDCARD`, `NEW_APP_PREVIEW_HTTPS`, `NEW_APP_PREVIEW_CERTIFICATE`, `NEW_APP_PREVIEW_LIMIT`, `NEW_APP_PREVIEW_COLLABORATORS_ONLY` | Preview settings for new apps, applied once they deploy from GitHub. Unset ones keep Dokploy's default.     |
+| `GITHUB_DEPLOYMENTS`, `GITHUB_CHECKS`                                                                                                                                 | Turn deployments or checks off. Without checks, the bridge uses commit statuses.                            |
+| `PREVIEW_CLEANUP`, `DELETE_PREVIEW_ENVIRONMENTS`                                                                                                                      | Turn cleanup off, or keep the empty environment (if you don't grant Administration).                        |
+| `CHECK_NAME_PRODUCTION`, `CHECK_NAME_PREVIEW`                                                                                                                         | The check names. Default `Dokploy` and `Dokploy Preview`.                                                   |
+| `ENVIRONMENT_PRODUCTION`, `ENVIRONMENT_PREVIEW`                                                                                                                       | The GitHub environment names. The preview one must contain `{pr}`.                                          |
+| `LOG_TAIL_LINES_SUCCESS`, `LOG_TAIL_LINES_FAILURE`                                                                                                                    | Lines of the build log in a check. `0` for none.                                                            |
+| `DRY_RUN`                                                                                                                                                             | `true` logs every change instead of making it.                                                              |
+| `LOG_LEVEL`                                                                                                                                                           | `debug` for more detail.                                                                                    |
 
 ### Updating, starting over, security
 

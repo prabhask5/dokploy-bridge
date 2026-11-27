@@ -52,6 +52,7 @@ export async function tick(ctx) {
     const fresh = !state.apps[brief.applicationId];
     const s = (state.apps[brief.applicationId] ||= { baseline: firstRun });
     s.newApp ??= newAppState(fresh && !firstRun);
+    s.newApp.build ??= "n/a"; // apps with state from before NEW_APP_BUILD_TYPE existed
     try {
       const a = await dk("GET", `application.one?applicationId=${brief.applicationId}`);
       if (isIgnored(a, cfg.ignoreApps)) continue;

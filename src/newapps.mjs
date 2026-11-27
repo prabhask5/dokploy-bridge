@@ -1,6 +1,7 @@
 // Settings applied once to every app created after the bridge's first run, from NEW_APP_*
 // environment variables (all optional; an unset variable leaves Dokploy's own value alone):
 //  - rollbacks: on, with the given registry, as soon as the app appears
+//  - build type: as soon as the app appears, only if it still has Dokploy's default (Nixpacks)
 //  - preview settings: as soon as the app deploys from GitHub (previews need GitHub), which
 //    may be a little after it's created, since the repository is often connected second
 // Apps that existed before this feature (or before the bridge) are never touched.
@@ -8,7 +9,11 @@ import { hasGithubSource } from "./util.mjs";
 
 // state.apps[id].newApp: "pending" parts still to apply, "done" (or "n/a" for older apps).
 export const newAppState = (fresh) =>
-  fresh ? { rollback: "pending", previews: "pending" } : { rollback: "n/a", previews: "n/a" };
+  fresh
+    ? { rollback: "pending", previews: "pending", build: "pending" }
+    : { rollback: "n/a", previews: "n/a", build: "n/a" };
+
+const DOKPLOY_DEFAULT_BUILD_TYPE = "nixpacks";
 
 export const previewSettings = (n) => {
   const out = {};
@@ -23,7 +28,9 @@ export const previewSettings = (n) => {
 };
 
 export const hasNewAppSettings = (cfg) =>
-  Boolean(cfg.newApp.rollbackRegistry) || Object.keys(previewSettings(cfg.newApp)).length > 0;
+  Boolean(cfg.newApp.rollbackRegistry) ||
+  Boolean(cfg.newApp.buildType) ||
+  Object.keys(previewSettings(cfg.newApp)).length > 0;
 
 // NEW_APP_ROLLBACK_REGISTRY may be a registry's ID or its name in Dokploy.
 async function registryId(ctx) {
@@ -51,11 +58,12 @@ async function registryId(ctx) {
 export async function applyNewAppSettings(ctx, a, s) {
   const { cfg, log, dk, store } = ctx;
   const n = s.newApp;
-  if (!n || (n.rollback !== "pending" && n.previews !== "pending")) return;
+  if (!n || (n.rollback !== "pending" && n.previews !== "pending" && n.build !== "pending")) return;
   const upd = {};
   const parts = [];
   let rollbackDone = false,
-    previewsDone = false;
+    previewsDone = false,
+    buildDone = false;
 
   if (n.rollback === "pending") {
     rollbackDone = true;
@@ -66,6 +74,15 @@ export async function applyNewAppSettings(ctx, a, s) {
         upd.rollbackRegistryId = id;
         parts.push("rollbacks on");
       }
+    }
+  }
+  if (n.build === "pending") {
+    buildDone = true;
+    const want = cfg.newApp.buildType;
+    // Only replace Dokploy's default: a build type you already picked is yours.
+    if (want && a.buildType === DOKPLOY_DEFAULT_BUILD_TYPE && want !== a.buildType) {
+      upd.buildType = want;
+      parts.push(`build type ${want}`);
     }
   }
   if (n.previews === "pending" && hasGithubSource(a)) {
@@ -81,5 +98,6 @@ export async function applyNewAppSettings(ctx, a, s) {
   }
   if (rollbackDone) n.rollback = "done";
   if (previewsDone) n.previews = "done";
-  if (rollbackDone || previewsDone) store.save();
+  if (buildDone) n.build = "done";
+  if (rollbackDone || previewsDone || buildDone) store.save();
 }

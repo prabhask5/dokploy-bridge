@@ -126,7 +126,18 @@ test("a new domain gets HTTPS, the certificate and the Dockerfile's port, once",
   ctx.store.state.apps.st = { previewPortSynced: true };
   await run([stellar({ domains: [dom({ https: false, certificateType: "letsencrypt" })] })]);
   assert.deepEqual(writes, [
-    ["domain.update", { domainId: "d1", port: 8080, https: true, certificateType: "none" }],
+    [
+      "domain.update",
+      {
+        domainId: "d1",
+        host: "planner.example.com",
+        path: "/",
+        port: 8080,
+        https: true,
+        certificateType: "none",
+        customCertResolver: "",
+      },
+    ],
   ]);
   assert.equal(state.domains.d1.filled, true);
   assert.equal(state.apps.st.previewPortSynced, false, "the preview port follows the new port");
@@ -318,4 +329,24 @@ test("a tick leaves the monitors of apps that are ignored or fail to load", asyn
   apps = {};
   await tick(ctx);
   assert.deepEqual(store.state.domains, {}, "both apps deleted: their monitors go");
+});
+
+test("a failing domain update is retried, then given up, and the monitor waits for it", async () => {
+  const { run, db, state, ctx } = setup();
+  let calls = 0;
+  ctx.dk = async () => {
+    calls++;
+    throw new Error("Dokploy POST domain.update -> 400");
+  };
+  await run([stellar()]);
+  const a = stellar({ domains: [dom({ https: false })] });
+  for (let i = 0; i < 4; i++) await run([a]);
+  assert.equal(calls, 4);
+  assert.equal(db.connects, 0, "no monitor with the wrong scheme while settings are pending");
+  await run([a]);
+  assert.equal(state.domains.d1.filled, true);
+  assert.match(ctx.log.lines.join("\n"), /giving up on NEW_DOMAIN_\* settings/);
+  await run([a]);
+  assert.equal(calls, 5, "not retried after giving up");
+  assert.equal(db.calls.filter((c) => c[0] === "add").length, 1);
 });

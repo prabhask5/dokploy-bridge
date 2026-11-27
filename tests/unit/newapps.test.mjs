@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { applyNewAppSettings, newAppState, previewSettings } from "../../src/newapps.mjs";
 import { tick } from "../../src/index.mjs";
+import { loadConfig } from "../../src/config.mjs";
 import { ctxWith, testConfig, memoryStore, fakeGitHub, app } from "../support/helpers.mjs";
 
 const MINE = {
@@ -49,7 +50,7 @@ test("a new GitHub app gets rollbacks and every preview setting in one update", 
       },
     ],
   ]);
-  assert.deepEqual(s.newApp, { rollback: "done", previews: "done" });
+  assert.deepEqual(s.newApp, { rollback: "done", previews: "done", build: "done" });
   writes.length = 0;
   await applyNewAppSettings(ctx, app(), s);
   assert.equal(writes.length, 0, "applied once, never again");
@@ -65,12 +66,12 @@ test("preview settings wait until the app is connected to GitHub", async () => {
     "rollbackActive",
     "rollbackRegistryId",
   ]);
-  assert.deepEqual(s.newApp, { rollback: "done", previews: "pending" });
+  assert.deepEqual(s.newApp, { rollback: "done", previews: "pending", build: "done" });
   writes.length = 0;
   await applyNewAppSettings(ctx, app(), s); // repository connected later
   assert.equal(writes[0][1].previewWildcard, "*.example.com");
   assert.equal(writes[0][1].rollbackActive, undefined);
-  assert.deepEqual(s.newApp, { rollback: "done", previews: "done" });
+  assert.deepEqual(s.newApp, { rollback: "done", previews: "done", build: "done" });
 });
 
 test("only the variables you set are written", async () => {
@@ -86,7 +87,7 @@ test("nothing set: nothing written", async () => {
   const s = { newApp: newAppState(true) };
   await applyNewAppSettings(ctxWith({ dk }), app(), s);
   assert.equal(writes.length, 0);
-  assert.deepEqual(s.newApp, { rollback: "done", previews: "done" });
+  assert.deepEqual(s.newApp, { rollback: "done", previews: "done", build: "done" });
 });
 
 test("an unknown registry turns rollbacks off for new apps, said once", async () => {
@@ -139,5 +140,45 @@ test("tick: only apps that appear after the first run get the settings", async (
     .filter(([p]) => p === "application.update")
     .map(([, b]) => b.applicationId);
   assert.deepEqual(touched, ["new"]);
-  assert.deepEqual(store.state.apps.between.newApp, { rollback: "n/a", previews: "n/a" });
+  assert.deepEqual(store.state.apps.between.newApp, {
+    rollback: "n/a",
+    previews: "n/a",
+    build: "n/a",
+  });
+});
+
+test("a new app gets NEW_APP_BUILD_TYPE with its rollbacks, only over Dokploy's default", async () => {
+  const cfg = testConfig({ ...MINE, NEW_APP_BUILD_TYPE: "dockerfile" });
+  const { writes, dk } = dokploy();
+  const ctx = ctxWith({ dk, cfg });
+  const s = { newApp: newAppState(true) };
+  await applyNewAppSettings(
+    ctx,
+    app({ sourceType: "github", githubId: null, buildType: "nixpacks" }),
+    s,
+  );
+  assert.deepEqual(writes, [
+    [
+      "application.update",
+      {
+        applicationId: "app1",
+        rollbackActive: true,
+        rollbackRegistryId: "reg-123",
+        buildType: "dockerfile",
+      },
+    ],
+  ]);
+  assert.equal(s.newApp.build, "done");
+
+  writes.length = 0;
+  const picked = { newApp: newAppState(true) };
+  await applyNewAppSettings(ctx, app({ buildType: "railpack" }), picked);
+  assert.ok(!("buildType" in writes[0][1]), "a build type you picked is kept");
+  assert.equal(picked.newApp.build, "done");
+});
+
+test("NEW_APP_BUILD_TYPE is validated", () => {
+  assert.equal(testConfig({ NEW_APP_BUILD_TYPE: "dockerfile" }).newApp.buildType, "dockerfile");
+  const { errors } = loadConfig({ DOKPLOY_API_KEY: "k", NEW_APP_BUILD_TYPE: "docker" });
+  assert.match(errors.join("\n"), /NEW_APP_BUILD_TYPE must be one of dockerfile/);
 });

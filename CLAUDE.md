@@ -9,6 +9,7 @@ A companion service for a self-hosted Dokploy that adds what Vercel does on GitH
 - a check run and a GitHub Deployment for every production and preview deploy
 - cleanup of a pull request's preview environment when it closes
 - settings for newly created apps: rollbacks and preview settings from `NEW_APP_*` variables, applied once; the preview port follows the first domain, and previews use the production env vars until customised
+- settings for newly added domains (`NEW_DOMAIN_*`: HTTPS, certificate, port from the Dockerfile), and an Uptime Kuma monitor per new domain, deleted with the domain
 
 One long-running Node.js process, plain JavaScript (ES modules), **no runtime dependencies**. It polls Dokploy's API and acts on GitHub as the GitHub App Dokploy already uses. It runs as a container on the Dokploy server.
 
@@ -27,11 +28,13 @@ Principles, used to break ties:
 | `src/log.mjs`         | Timestamped logger; `log.once(key, …)` for warnings that shouldn't repeat every tick     |
 | `src/store.mjs`       | `state.json`, loaded once and written atomically (temp file + rename)                    |
 | `src/clients.mjs`     | `dk()`: Dokploy API client. `gh()`: GitHub client authenticating as Dokploy's GitHub App |
+| `src/kuma.mjs`        | `createKuma()`: Uptime Kuma client speaking Socket.IO (Engine.IO v4) over `WebSocket`    |
 | `src/util.mjs`        | Pure helpers: SHA parsing, URLs, secret masking, environment-name templates, opt-out     |
 | `src/newapps.mjs`     | Feature 1: `NEW_APP_*` settings applied once to new apps (rollbacks, preview settings)   |
 | `src/previews.mjs`    | Feature 1: preview follow-ups for new apps (preview port, preview env inheritance)       |
 | `src/reporting.mjs`   | Feature 2: deployments, check runs, commit-status fallback, in-progress checks           |
 | `src/cleanup.mjs`     | Feature 3: deleting closed PRs' deployments and environments                             |
+| `src/domains.mjs`     | Feature 4: `NEW_DOMAIN_*` settings and Uptime Kuma monitors for new application domains  |
 | `src/sync.mjs`        | Per-app orchestration of features 2 and 3                                                |
 | `src/healthcheck.mjs` | Container `HEALTHCHECK`: exit 0 if the last tick finished recently                       |
 | `tests/`              | Every test (see [tests/README.md](tests/README.md))                                      |
@@ -48,7 +51,8 @@ Principles, used to break ties:
       - report preview deployments (`GET previewDeployment.all`)
       - retire previews Dokploy removed
       - the once-per-start orphan sweep
-3. Save state, and write the heartbeat file.
+3. `syncDomains()` with the apps read in step 2 and every listed app ID: new domains, monitors, removed domains. Kuma is connected only when there's monitor work, and closed afterwards.
+4. Save state, and write the heartbeat file.
 
 An error in one app is logged and the loop moves on to the next app. A failed tick (for example Dokploy being down) is logged, and the next tick tries again.
 
@@ -57,7 +61,7 @@ An error in one app is logged and the loop moves on to the next app. A failed ti
 Everything shares one object built by `createContext(cfg, overrides)`. Feature code never imports the clients directly, so tests swap in fakes through `overrides`:
 
 ```js
-{ cfg, log, store: { state, save }, dk, gh, flags: { checksUnavailable }, swept: Set }
+{ cfg, log, store: { state, save }, dk, gh, kuma, flags: { checksUnavailable }, swept: Set }
 ```
 
 ### GitHub access
@@ -74,13 +78,15 @@ Errors are `HttpError`s with a `.status`, and feature code branches on `.status`
 
 `state.json` in `DATA_DIR`. **Its shape is a compatibility promise**, because running installs depend on it: add fields, don't rename or repurpose them.
 
-| Key                             | Shape                                                                   | Meaning                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baselined`                     | bool                                                                    | Set after the first tick. On that tick, existing deployments are recorded with `skipped: true` and not reported.                                                                                                                                                                                                                                                           |
-| `apps[applicationId]`           | `{ baseline, newApp, previewPortSynced, previewEnvWritten, defaults? }` | `baseline: true` means the app existed before the bridge, so nothing here touches it. `newApp: { rollback, previews }` is `pending`/`done` for apps first seen after the first run, `n/a` for apps that already had state when the field was added (they never get `NEW_APP_*` settings). `defaults` is left by versions that copied a template app's settings; ignore it. |
-| `reported[deploymentId]`        | `{ gh, check, repo, sha, checkName, status, skipped?, noted? }`         | Dokploy deployment → GitHub deployment and check run. Reported again only when `status` changes.                                                                                                                                                                                                                                                                           |
-| `previews[previewDeploymentId]` | `{ repo, githubId, environment, gh: [ids], tries? }`                    | Live previews, so they can be cleaned up when Dokploy removes them. `tries` caps failed cleanups at 5.                                                                                                                                                                                                                                                                     |
-| `pending[key]`                  | `{ repo, sha, gh, check, checkName, environment, at, stoppedAt? }`      | In-progress checks posted before Dokploy wrote a record. Key: `<appId>\|prod` or `<appId>\|pr<n>`.                                                                                                                                                                                                                                                                         |
+| Key                             | Shape                                                                     | Meaning                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baselined`                     | bool                                                                      | Set after the first tick. On that tick, existing deployments are recorded with `skipped: true` and not reported.                                                                                                                                                                                                                                                           |
+| `apps[applicationId]`           | `{ baseline, newApp, previewPortSynced, previewEnvWritten, defaults? }`   | `baseline: true` means the app existed before the bridge, so nothing here touches it. `newApp: { rollback, previews }` is `pending`/`done` for apps first seen after the first run, `n/a` for apps that already had state when the field was added (they never get `NEW_APP_*` settings). `defaults` is left by versions that copied a template app's settings; ignore it. |
+| `reported[deploymentId]`        | `{ gh, check, repo, sha, checkName, status, skipped?, noted? }`           | Dokploy deployment → GitHub deployment and check run. Reported again only when `status` changes.                                                                                                                                                                                                                                                                           |
+| `previews[previewDeploymentId]` | `{ repo, githubId, environment, gh: [ids], tries? }`                      | Live previews, so they can be cleaned up when Dokploy removes them. `tries` caps failed cleanups at 5.                                                                                                                                                                                                                                                                     |
+| `pending[key]`                  | `{ repo, sha, gh, check, checkName, environment, at, stoppedAt? }`        | In-progress checks posted before Dokploy wrote a record. Key: `<appId>\|prod` or `<appId>\|pr<n>`.                                                                                                                                                                                                                                                                         |
+| `domainsBaselined`              | bool                                                                      | Set on the first tick with a domain feature on; the domains then present are recorded as `existing`.                                                                                                                                                                                                                                                                       |
+| `domains[domainId]`             | `{ appId, host, origin, filled?, monitor?, monitorId?, created?, name? }` | Application domains. `origin: "existing"` is never touched. For `new`: `filled` once `NEW_DOMAIN_*` are applied; `monitor` is `pending`/`done`/`n/a`; `created` is true only for monitors the bridge made (only those are deleted).                                                                                                                                        |
 
 New apps get only what the `NEW_APP_*` variables name (rollbacks and preview settings), written once with a single `application.update`. Rollbacks are applied as soon as the app appears; preview settings wait until it deploys from GitHub, because the repository is often connected after the app is created. Build type, auto-deploy and the rest stay as Dokploy creates them. There's deliberately no template app: what new apps get is visible in one place. A `defaults.json` or `TEMPLATE_APP` left by older versions is ignored, and the bridge says so once at startup.
 
@@ -94,6 +100,10 @@ New apps get only what the `NEW_APP_*` variables name (rollbacks and preview set
   - The commit is only in the deployment's description, as `Hash: <sha>` while running or `Commit: <sha>` when done, depending on the version. That's why `shaOf()` accepts both.
   - Some versions write the deployment record only when the build ends. Hence `markBuilding()` + `pending`.
   - Build logs are files at `deployment.logPath` on the host. They're readable only if `/etc/dokploy/logs` is mounted at the same path.
+- **Uptime Kuma quirks the code depends on (1.23):**
+  - There's no REST API for monitors; `kuma.mjs` emits the same Socket.IO events as Kuma's UI (`login`, `add`, `deleteMonitor`) and reads the `monitorList` and `notificationList` events Kuma pushes after login.
+  - Deleting a monitor removes it from status pages too (foreign-key cascade). The bridge never edits status pages: `saveStatusPage` replaces every group on a page, too risky to do unattended.
+  - A user with 2FA can't sign in unattended.
 - **Secrets never reach GitHub unmasked.** Everything taken from a build log goes through `stripAnsi()` and `maskSecrets()` with the app's env, preview env and build args.
 - **Logging:** `log.info` for things the owner should see, `log.debug` for detail, `log.once` for permission and configuration warnings.
 - **Formatting and lint:** Prettier (`.prettierrc.json`: double quotes, trailing commas, 100 columns) and ESLint. CI checks both.
@@ -108,6 +118,7 @@ New apps get only what the `NEW_APP_*` variables name (rollbacks and preview set
 | Add a new-app setting           | `cfg.newApp` in `src/config.mjs` (optional, validated), `previewSettings()` or `applyNewAppSettings()` in `src/newapps.mjs`, `.env.example`, the README table. Test: `tests/unit/newapps.test.mjs` |
 | Support a new Dokploy API shape | `tick()` in `src/index.mjs` for app listing; `util.mjs` for parsing. Keep the old shape working too.                                                                                               |
 | Change cleanup                  | `src/cleanup.mjs`. Test: `tests/unit/cleanup.test.mjs`                                                                                                                                             |
+| Change domains or monitors      | `src/domains.mjs` (`monitorFor()` builds the monitor), `src/kuma.mjs` for the protocol. Tests: `tests/unit/domains.test.mjs`, `tests/unit/kuma.test.mjs`                                           |
 
 ### Endpoints used
 
@@ -119,6 +130,7 @@ New apps get only what the `NEW_APP_*` variables name (rollbacks and preview set
 | `GET github.one`            | The GitHub App's credentials                  |
 | `GET registry.all`          | Resolving `NEW_APP_ROLLBACK_REGISTRY` by name |
 | `POST application.update`   | New-app settings, preview port, preview env   |
+| `POST domain.update`        | `NEW_DOMAIN_*` settings                       |
 
 | GitHub                                                        | For                                   | Permission                    |
 | ------------------------------------------------------------- | ------------------------------------- | ----------------------------- |
@@ -127,6 +139,12 @@ New apps get only what the `NEW_APP_*` variables name (rollbacks and preview set
 | `POST /repos/{r}/statuses/{sha}`                              | Fallback without checks               | Commit statuses: write        |
 | `GET /repos/{r}/commits/{branch}`, `GET /repos/{r}/pulls/{n}` | The commit being built                | Contents, Pull requests: read |
 | `DELETE /repos/{r}/environments/{name}`                       | Removing an empty preview environment | Administration: write         |
+| `GET /repos/{r}/contents/{path}`                              | The Dockerfile's `EXPOSE` port        | Contents: read                |
+
+| Uptime Kuma (Socket.IO events unless noted)                | For                                   |
+| ---------------------------------------------------------- | ------------------------------------- |
+| `login`, then the pushed `monitorList`, `notificationList` | Signing in, finding existing monitors |
+| `add`, `deleteMonitor`                                     | Creating and deleting monitors        |
 
 ## 6. Commands
 
@@ -185,5 +203,6 @@ Never push to `main`; open a pull request.
 ## Known limitations
 
 - GitHub only, and Dokploy **applications** only: Docker Compose services aren't handled.
+- Uptime Kuma 1.23's Socket.IO events aren't a public API either; 2.x may differ.
 - Dokploy's API isn't a stable public API, so field names can change between Dokploy versions.
 - Build-log tails need the bridge on the server where builds run.

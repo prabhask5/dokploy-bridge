@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   shaOf,
+  monitorMarkers,
+  exposedPort,
+  dockerfilePath,
+  hostOf,
   fmtDuration,
   secretValues,
   maskSecrets,
@@ -91,4 +95,50 @@ test("hasGithubSource", () => {
   assert.ok(hasGithubSource({ sourceType: "github", githubId: "g", owner: "o", repository: "r" }));
   assert.ok(!hasGithubSource({ sourceType: "git", githubId: "g", owner: "o", repository: "r" }));
   assert.ok(!hasGithubSource({ sourceType: "github", owner: "o", repository: "r" }));
+});
+
+test("monitorMarkers reads monitor, health and keyword lines from a description", () => {
+  assert.deepEqual(
+    monitorMarkers("My planner\nMonitor: Stellar Planner \nhealth: api/health\nkeyword: ok"),
+    { off: false, name: "Stellar Planner", health: "/api/health", keyword: "ok" },
+  );
+  assert.equal(monitorMarkers("monitor: OFF").off, true);
+  assert.equal(monitorMarkers("monitor: OFF").name, undefined);
+  assert.deepEqual(monitorMarkers(null), {
+    off: false,
+    name: undefined,
+    health: undefined,
+    keyword: undefined,
+  });
+});
+
+test("exposedPort takes the built stage's last EXPOSE", () => {
+  const df = [
+    "FROM --platform=$BUILDPLATFORM node:24 AS deps",
+    "EXPOSE 9229",
+    "FROM nginx:1.30 AS web",
+    "EXPOSE 8080/tcp 9000",
+    "EXPOSE \\",
+    "  80",
+    'CMD ["nginx"]',
+  ].join("\n");
+  assert.equal(exposedPort(df), 80);
+  assert.equal(exposedPort(df, "deps"), 9229);
+  assert.equal(exposedPort("FROM node\nEXPOSE $PORT"), undefined);
+  assert.equal(exposedPort(""), undefined);
+});
+
+test("dockerfilePath joins the build path and Dockerfile like Dokploy", () => {
+  assert.equal(dockerfilePath({}), "Dockerfile");
+  assert.equal(dockerfilePath({ buildPath: "/", dockerfile: "./Dockerfile" }), "Dockerfile");
+  assert.equal(
+    dockerfilePath({ buildPath: "/apps/web/", dockerfile: "docker/Prod" }),
+    "apps/web/docker/Prod",
+  );
+});
+
+test("hostOf", () => {
+  assert.equal(hostOf("https://Planner.example.com/api/health"), "planner.example.com");
+  assert.equal(hostOf("not a url"), undefined);
+  assert.equal(hostOf(undefined), undefined);
 });

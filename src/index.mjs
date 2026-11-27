@@ -11,6 +11,8 @@ import { applyNewAppSettings, newAppState } from "./newapps.mjs";
 import { syncApp } from "./sync.mjs";
 import { isIgnored } from "./util.mjs";
 import { hasNewAppSettings } from "./newapps.mjs";
+import { hasDomainSettings, syncDomains } from "./domains.mjs";
+import { createKuma } from "./kuma.mjs";
 
 export const VERSION = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -21,7 +23,8 @@ export function createContext(cfg, overrides = {}) {
   const store = overrides.store || createStore(cfg.stateFile);
   const dk = overrides.dk || createDokploy({ cfg, log });
   const gh = overrides.gh || createGitHub({ cfg, log, dk });
-  return { cfg, log, store, dk, gh, flags: { checksUnavailable: false }, swept: new Set() };
+  const kuma = overrides.kuma || (cfg.kuma.url ? createKuma({ cfg, log }) : null);
+  return { cfg, log, store, dk, gh, kuma, flags: { checksUnavailable: false }, swept: new Set() };
 }
 
 export async function tick(ctx) {
@@ -40,6 +43,7 @@ export async function tick(ctx) {
   }
   const appsList = [...byId.values()];
   const firstRun = !state.baselined;
+  const fetched = new Map();
   for (const brief of appsList) {
     if (isIgnored(brief, cfg.ignoreApps)) {
       log.debug(`[${brief.name}] ignored`);
@@ -51,6 +55,7 @@ export async function tick(ctx) {
     try {
       const a = await dk("GET", `application.one?applicationId=${brief.applicationId}`);
       if (isIgnored(a, cfg.ignoreApps)) continue;
+      fetched.set(a.applicationId, a);
       if (!s.baseline) {
         await applyNewAppSettings(ctx, a, s);
         await followUpNewApp(ctx, a, s);
@@ -59,6 +64,11 @@ export async function tick(ctx) {
     } catch (e) {
       log.info(`[${brief.name}] ${e.message}`);
     }
+  }
+  try {
+    await syncDomains(ctx, fetched, new Set(byId.keys()));
+  } catch (e) {
+    log.info(`domains: ${e.message}`);
   }
   if (firstRun) {
     state.baselined = true;
@@ -90,6 +100,8 @@ async function main() {
     cfg.githubDeployments && "deployments",
     cfg.githubChecks && "checks",
     cfg.previewCleanup && "preview cleanup",
+    hasDomainSettings(cfg) && "new-domain settings",
+    cfg.kuma.url && "uptime monitors",
     cfg.dryRun && "DRY RUN",
   ]
     .filter(Boolean)

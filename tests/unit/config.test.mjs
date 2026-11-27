@@ -65,6 +65,7 @@ test("new-app settings: unset means leave alone; values parsed and validated", (
     previewLimit: undefined,
     previewCollaboratorsOnly: undefined,
     rollbackRegistry: undefined,
+    buildType: undefined,
   });
   const { cfg, errors } = loadConfig({
     DOKPLOY_API_KEY: "k",

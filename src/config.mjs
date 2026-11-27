@@ -59,6 +59,7 @@ export function loadConfig(env = process.env) {
           : Number(env.NEW_APP_PREVIEW_LIMIT),
       previewCollaboratorsOnly: optBool(env.NEW_APP_PREVIEW_COLLABORATORS_ONLY),
       rollbackRegistry: opt(env.NEW_APP_ROLLBACK_REGISTRY),
+      buildType: opt(env.NEW_APP_BUILD_TYPE),
     },
     // Settings applied once to application domains added after this feature first ran (all optional)
     newDomain: {
@@ -121,7 +122,17 @@ export function loadConfig(env = process.env) {
     if (opt(env[k]) !== undefined && !BOOL_RE.test(opt(env[k])))
       errors.push(`${k} must be true or false, got "${env[k]}"`);
   }
-  const { previewCertificate: cert, previewLimit: limit } = cfg.newApp;
+  const { previewCertificate: cert, previewLimit: limit, buildType } = cfg.newApp;
+  const BUILD_TYPES = [
+    "dockerfile",
+    "nixpacks",
+    "railpack",
+    "heroku_buildpacks",
+    "paketo_buildpacks",
+    "static",
+  ];
+  if (buildType !== undefined && !BUILD_TYPES.includes(buildType))
+    errors.push(`NEW_APP_BUILD_TYPE must be one of ${BUILD_TYPES.join(", ")}, got "${buildType}"`);
   if (cert !== undefined && !["none", "letsencrypt", "custom"].includes(cert))
     errors.push(`NEW_APP_PREVIEW_CERTIFICATE must be none, letsencrypt or custom, got "${cert}"`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1))

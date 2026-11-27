@@ -39,6 +39,7 @@ Principles, used to break ties:
 | `src/healthcheck.mjs` | Container `HEALTHCHECK`: exit 0 if the last tick finished recently                         |
 | `tests/`              | Every test (see [tests/README.md](tests/README.md))                                        |
 | `scripts/`            | `check-links.mjs`, run in CI                                                               |
+| `assets/`             | The icon: `icon.svg`, and `icon.png` (512 px) for the Dokploy app icon. Not in the image.  |
 
 ### A tick (every `POLL_SECONDS`)
 

@@ -70,3 +70,56 @@ export const isIgnored = (a, ignoreApps = []) =>
   /dokploy-bridge\s*:\s*off/i.test(a?.description || "") ||
   ignoreApps.includes(a?.name) ||
   ignoreApps.includes(a?.appName);
+
+// "key: value" lines in an app's Dokploy description that tune its uptime monitor, e.g.
+// "monitor: Stellar Planner", "health: /api/health", "keyword: ok". "monitor: off" skips it.
+export function monitorMarkers(description = "") {
+  const get = (key) =>
+    new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`, "im").exec(description || "")?.[1];
+  const name = get("monitor");
+  const health = get("health");
+  return {
+    off: /^off$/i.test(name || ""),
+    name: name && !/^off$/i.test(name) ? name : undefined,
+    health: health ? `/${health.replace(/^\/+/, "")}` : undefined,
+    keyword: get("keyword"),
+  };
+}
+
+// The port a Dockerfile's image listens on: the first port of the last EXPOSE in the stage that
+// gets built (the last stage, or `target` when Dokploy builds a named stage).
+export function exposedPort(dockerfile, target) {
+  const lines = String(dockerfile || "")
+    .replace(/\\\r?\n/g, " ")
+    .split(/\r?\n/)
+    .map((l) => l.trim());
+  let port, inTarget;
+  for (const l of lines) {
+    const from = /^FROM\s+(?:--\S+\s+)*\S+(?:\s+AS\s+(\S+))?/i.exec(l);
+    if (from) {
+      if (target && inTarget) break;
+      inTarget = !target || from[1]?.toLowerCase() === target.toLowerCase();
+      port = undefined;
+      continue;
+    }
+    const m = /^EXPOSE\s+(\d+)/i.exec(l);
+    if (m && inTarget) port = Number(m[1]);
+  }
+  return port;
+}
+
+// Where Dokploy reads an app's Dockerfile from, relative to the repository root.
+export const dockerfilePath = (a) =>
+  [a.buildPath || "", a.dockerfile || "Dockerfile"]
+    .join("/")
+    .split("/")
+    .filter((s) => s && s !== ".")
+    .join("/");
+
+export const hostOf = (url) => {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+};

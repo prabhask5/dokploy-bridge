@@ -4,6 +4,7 @@
 // state.reported[depId] = { gh, check, repo, sha, checkName, status }  Dokploy deployment -> GitHub
 // state.previews[pdId]  = { repo, githubId, environment, gh: [ids] }   Dokploy preview -> GitHub
 // state.pending[key]    = { repo, sha, gh, check, ... }                build running before Dokploy wrote its record
+// state.domains[domId]  = { appId, host, origin, monitorId?, created?, ... } application domain -> Kuma monitor
 import fs from "node:fs";
 import path from "node:path";
 

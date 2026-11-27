@@ -106,3 +106,47 @@ test("validation errors", () => {
     /must differ/,
   );
 });
+
+test("uptime monitors are off by default and default to the documented monitor settings", () => {
+  const { cfg, errors } = loadConfig({ DOKPLOY_API_KEY: "k" });
+  assert.deepEqual(errors, []);
+  assert.equal(cfg.kuma.url, "");
+  assert.equal(cfg.newDomain.https, undefined);
+  assert.equal(cfg.newDomain.portFromDockerfile, false);
+  const on = loadConfig({
+    DOKPLOY_API_KEY: "k",
+    KUMA_URL: "http://uptime-kuma:3001/",
+    KUMA_USERNAME: "u",
+    KUMA_PASSWORD: "p",
+    KUMA_MONITOR_ACCEPTED_STATUS: "200-299, 301",
+    KUMA_MONITOR_NOTIFICATIONS: "Email, Pager",
+  });
+  assert.deepEqual(on.errors, []);
+  assert.equal(on.cfg.kuma.url, "http://uptime-kuma:3001");
+  assert.deepEqual(on.cfg.kuma.acceptedStatus, ["200-299", "301"]);
+  assert.deepEqual(on.cfg.kuma.notifications, ["Email", "Pager"]);
+  assert.equal(on.cfg.kuma.interval, 60);
+  assert.equal(on.cfg.kuma.retries, 2);
+  assert.equal(on.cfg.kuma.maxDeletes, 3);
+});
+
+test("uptime monitor and new-domain settings are validated", () => {
+  const { errors } = loadConfig({
+    DOKPLOY_API_KEY: "k",
+    KUMA_URL: "kuma:3001",
+    KUMA_MONITOR_INTERVAL: "5",
+    KUMA_MONITOR_ACCEPTED_STATUS: "2xx",
+    NEW_DOMAIN_HTTPS: "maybe",
+    NEW_DOMAIN_CERTIFICATE: "acme",
+  });
+  const all = errors.join("\n");
+  for (const re of [
+    /KUMA_URL must be an http/,
+    /KUMA_USERNAME and KUMA_PASSWORD are required/,
+    /KUMA_MONITOR_INTERVAL must be a whole number of 20/,
+    /KUMA_MONITOR_ACCEPTED_STATUS/,
+    /NEW_DOMAIN_HTTPS must be true or false/,
+    /NEW_DOMAIN_CERTIFICATE must be none, letsencrypt or custom/,
+  ])
+    assert.match(all, re);
+});

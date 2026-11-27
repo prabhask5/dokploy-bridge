@@ -60,6 +60,30 @@ export function loadConfig(env = process.env) {
       previewCollaboratorsOnly: optBool(env.NEW_APP_PREVIEW_COLLABORATORS_ONLY),
       rollbackRegistry: opt(env.NEW_APP_ROLLBACK_REGISTRY),
     },
+    // Settings applied once to application domains added after this feature first ran (all optional)
+    newDomain: {
+      https: optBool(env.NEW_DOMAIN_HTTPS),
+      certificate: opt(env.NEW_DOMAIN_CERTIFICATE),
+      portFromDockerfile: bool(env.NEW_DOMAIN_PORT_FROM_DOCKERFILE, false),
+    },
+    // Uptime Kuma monitors for new application domains (off unless KUMA_URL is set)
+    kuma: {
+      url: stripSlash(str(env.KUMA_URL, "")),
+      username: str(env.KUMA_USERNAME, ""),
+      password: str(env.KUMA_PASSWORD, ""),
+      statusPage: str(env.KUMA_STATUS_PAGE, ""),
+      statusGroup: str(env.KUMA_STATUS_GROUP, "Services"),
+      interval: num(env.KUMA_MONITOR_INTERVAL, 60),
+      retries: num(env.KUMA_MONITOR_RETRIES, 2),
+      retryInterval: num(env.KUMA_MONITOR_RETRY_INTERVAL, 20),
+      timeout: num(env.KUMA_MONITOR_TIMEOUT, 48),
+      resend: num(env.KUMA_MONITOR_RESEND, 0),
+      expiryNotification: bool(env.KUMA_MONITOR_EXPIRY_NOTIFICATION, true),
+      maxRedirects: num(env.KUMA_MONITOR_MAX_REDIRECTS, 10),
+      acceptedStatus: list(str(env.KUMA_MONITOR_ACCEPTED_STATUS, "200-299")),
+      notifications: list(env.KUMA_MONITOR_NOTIFICATIONS),
+      maxDeletes: num(env.KUMA_MAX_DELETES_PER_TICK, 3),
+    },
     // Names shown on GitHub
     checkNameProduction: str(env.CHECK_NAME_PRODUCTION, "Dokploy"),
     checkNamePreview: str(env.CHECK_NAME_PREVIEW, "Dokploy Preview"),
@@ -86,6 +110,7 @@ export function loadConfig(env = process.env) {
     ["DOKPLOY_URL", cfg.dokployUrl],
     ["DOKPLOY_PUBLIC_URL", cfg.dokployPublicUrl],
     ["GITHUB_API_URL", cfg.githubApi],
+    ["KUMA_URL", cfg.kuma.url],
   ]) {
     if (v && !/^https?:\/\/[^/]/.test(v)) errors.push(`${k} must be an http(s) URL, got "${v}"`);
   }
@@ -93,6 +118,7 @@ export function loadConfig(env = process.env) {
     "NEW_APP_PREVIEWS",
     "NEW_APP_PREVIEW_HTTPS",
     "NEW_APP_PREVIEW_COLLABORATORS_ONLY",
+    "NEW_DOMAIN_HTTPS",
   ]) {
     if (opt(env[k]) !== undefined && !BOOL_RE.test(opt(env[k])))
       errors.push(`${k} must be true or false, got "${env[k]}"`);
@@ -103,6 +129,28 @@ export function loadConfig(env = process.env) {
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1))
     errors.push(
       `NEW_APP_PREVIEW_LIMIT must be a whole number of 1 or more, got "${env.NEW_APP_PREVIEW_LIMIT}"`,
+    );
+  const { certificate: domainCert } = cfg.newDomain;
+  if (domainCert !== undefined && !["none", "letsencrypt", "custom"].includes(domainCert))
+    errors.push(`NEW_DOMAIN_CERTIFICATE must be none, letsencrypt or custom, got "${domainCert}"`);
+  const k = cfg.kuma;
+  if (k.url && (!k.username || !k.password))
+    errors.push("KUMA_USERNAME and KUMA_PASSWORD are required when KUMA_URL is set");
+  for (const [name, v, min] of [
+    ["KUMA_MONITOR_INTERVAL", k.interval, 20],
+    ["KUMA_MONITOR_RETRIES", k.retries, 0],
+    ["KUMA_MONITOR_RETRY_INTERVAL", k.retryInterval, 20],
+    ["KUMA_MONITOR_TIMEOUT", k.timeout, 1],
+    ["KUMA_MONITOR_RESEND", k.resend, 0],
+    ["KUMA_MONITOR_MAX_REDIRECTS", k.maxRedirects, 0],
+    ["KUMA_MAX_DELETES_PER_TICK", k.maxDeletes, 0],
+  ]) {
+    if (!(Number.isInteger(v) && v >= min))
+      errors.push(`${name} must be a whole number of ${min} or more, got "${env[name]}"`);
+  }
+  if (!k.acceptedStatus.every((c) => /^\d{3}(-\d{3})?$/.test(c)))
+    errors.push(
+      `KUMA_MONITOR_ACCEPTED_STATUS must be status codes or ranges like 200-299, got "${env.KUMA_MONITOR_ACCEPTED_STATUS}"`,
     );
   if (cfg.checkNameProduction === cfg.checkNamePreview)
     errors.push("CHECK_NAME_PRODUCTION and CHECK_NAME_PREVIEW must differ");
